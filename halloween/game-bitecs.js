@@ -74,7 +74,8 @@ async function initBitECSGame() {
         showTalkPrompt: false,           // プロンプト表示フラグ
         catsBetrayed: false,             // 猫が裏切ったか（30秒切ったらtrue）
         collectedLanterns: new Set(),    // 収集済みランタン
-        explodedBats: new Set()          // 爆発済みコウモリ
+        explodedBats: new Set(),         // 爆発済みコウモリ
+        explosions: []                   // アクティブな爆発エフェクト
     };
 
     // INTROの中央メッセージは数秒後に小さなヒントに切り替え
@@ -418,6 +419,93 @@ async function initBitECSGame() {
         }
     }
 
+    // 爆発エフェクトを生成
+    function createExplosion(x, y, currentTime) {
+        const particleCount = 20;
+        const particles = [];
+        const colors = ['#ff6d00', '#ff9c00', '#ffeb3b', '#ff0000', '#ff5555'];
+
+        for (let i = 0; i < particleCount; i++) {
+            const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
+            const speed = 0.5 + Math.random() * 1.5;
+            const size = 3 + Math.random() * 5;
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const lifetime = 300 + Math.random() * 200; // 300-500ms
+
+            particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                size: size,
+                color: color,
+                lifetime: lifetime,
+                createdAt: currentTime
+            });
+        }
+
+        gameState.explosions.push({
+            particles: particles,
+            createdAt: currentTime
+        });
+    }
+
+    // 爆発エフェクトを更新・描画（3D空間）
+    function updateAndRenderExplosions(ctx, canvas, playerX, playerY, playerAngle, currentTime) {
+        // 古い爆発を削除
+        gameState.explosions = gameState.explosions.filter(explosion => {
+            const age = currentTime - explosion.createdAt;
+            return age < 600; // 600ms以上経過したら削除
+        });
+
+        // 各爆発を描画
+        gameState.explosions.forEach(explosion => {
+            explosion.particles.forEach(particle => {
+                const age = currentTime - particle.createdAt;
+                if (age > particle.lifetime) return;
+
+                // パーティクルの位置を更新（2D空間での移動）
+                const progress = age / particle.lifetime;
+                const px = particle.x + particle.vx * progress;
+                const py = particle.y + particle.vy * progress;
+
+                // プレイヤーからの相対位置
+                const dx = px - playerX;
+                const dy = py - playerY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // 視野内チェック
+                if (distance < 0.1 || distance > 10) return;
+
+                const angle = Math.atan2(dy, dx) - playerAngle;
+                let normalizedAngle = angle;
+                while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+                while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+
+                const fov = Math.PI / 3;
+                if (normalizedAngle < -fov || normalizedAngle > fov) return;
+
+                // 画面上の位置を計算
+                const screenX = (normalizedAngle / fov) * (canvas.width / 2) + canvas.width / 2;
+                const screenY = canvas.height / 2;
+
+                // 距離に応じたサイズ
+                const screenSize = (particle.size * canvas.height) / distance;
+
+                // フェードアウト
+                const alpha = 1 - progress;
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = particle.color;
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, screenSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        });
+    }
+
     // ゲームループ
     let lastTime = performance.now();
     let lastRenderTime = 0;
@@ -529,6 +617,9 @@ async function initBitECSGame() {
                         // 距離が1.0以下なら爆発！
                         if (distance < 1.0) {
                             gameState.explodedBats.add(key);
+
+                            // 爆発エフェクトを追加
+                            createExplosion(bat.x, bat.y, currentTime);
 
                             // ダメージ判定（無敵時間チェック）
                             if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
@@ -737,6 +828,9 @@ async function initBitECSGame() {
         // 逃走フェーズでは敵も動的に描画
         const dynamicEnemies = gameState.phase === PHASE.ESCAPE ? enemies : null;
         renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer, dynamicEnemies, gameState.collectedLanterns, gameState.explodedBats);
+
+        // 爆発エフェクトを描画
+        updateAndRenderExplosions(ctx, canvas, playerX, playerY, playerAngle, performance.now());
 
         // ミニマップ（逃走フェーズでは敵も表示）
         renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition, dynamicEnemies, gameState.phase);
@@ -1148,15 +1242,31 @@ async function initBitECSGame() {
             ctx.fillStyle = adjustBrightness(wallColor, brightness);
             ctx.fillRect(x, y, width, height);
 
-            // 窓（ランダム、正方形）
-            if (Math.random() > 0.995 && distance < 10 && height > 50) {
-                const windowSize = Math.min(height * 0.12, 8);
-                ctx.fillStyle = adjustBrightness('#ffcc00', brightness * 1.5);
-                ctx.fillRect(x, y + height * 0.3, width, windowSize);
+            // 窓（位置ベースで固定、点滅しない）
+            // セル座標のハッシュで窓の有無を決定
+            const hasWindow = ((cellX * 7 + cellY * 13) % 5) === 0;
+
+            if (hasWindow && distance < 10 && height > 40) {
+                const windowSize = Math.min(height * 0.15, 10);
+                const windowMargin = 2;
+
+                // 窓の明かり（黄色）
+                ctx.fillStyle = adjustBrightness('#ffcc00', brightness * 1.8);
+                ctx.fillRect(x + windowMargin, y + height * 0.25, Math.max(1, width - windowMargin * 2), windowSize);
+
+                // 窓枠（暗い色）
+                ctx.fillStyle = adjustBrightness('#1a1a1a', brightness);
+                // 横の桟（中央）
+                ctx.fillRect(x + windowMargin, y + height * 0.25 + windowSize / 2, Math.max(1, width - windowMargin * 2), 1);
 
                 // 2つ目の窓（縦に並べる）
-                if (height > 100 && Math.random() > 0.5) {
-                    ctx.fillRect(x, y + height * 0.6, width, windowSize);
+                if (height > 80 && ((cellX + cellY) % 3) === 0) {
+                    ctx.fillStyle = adjustBrightness('#ffcc00', brightness * 1.8);
+                    ctx.fillRect(x + windowMargin, y + height * 0.6, Math.max(1, width - windowMargin * 2), windowSize);
+
+                    // 窓枠
+                    ctx.fillStyle = adjustBrightness('#1a1a1a', brightness);
+                    ctx.fillRect(x + windowMargin, y + height * 0.6 + windowSize / 2, Math.max(1, width - windowMargin * 2), 1);
                 }
             }
         }
