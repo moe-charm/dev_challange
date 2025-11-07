@@ -40,18 +40,42 @@ async function initBitECSGame() {
     // 入力システムを作成
     const inputSystem = new InputSystem(world, playerQuery, Position, Rotation, Player);
 
-    // ゲーム状態（収集ゲーム）
-    const gameState = {
-        collectedPumpkins: new Set(), // 収集済みかぼちゃの座標セット
-        totalPumpkins: 15,            // 総かぼちゃ数（ランダム配置）
-        startTime: 0,                 // 開始時刻（イベント開始時に設定）
-        gameCompleted: false,         // ゲーム完了フラグ
-        gameStarted: false,           // ゲーム開始フラグ
-        canTalk: false,               // 魔女っこと話せるか
-        showTalkPrompt: false,        // 近づくとスタート表示フラグ
-        introMessageUntil: 0,         // 開始直後のセリフ表示タイムスタンプ
-        autoStartTriggered: false     // 近づいたら自動開始の一回トリガ
+    // ゲームフェーズ定義
+    const PHASE = {
+        INTRO: 'intro',           // 魔女っこを探す
+        COLLECT: 'collect',       // かぼちゃ収集
+        RETURN: 'return',         // 魔女っこに戻る
+        BETRAYAL: 'betrayal',     // 裏切りイベント
+        ESCAPE: 'escape',         // 敵から逃走
+        GAMEOVER: 'gameover',     // ゲームオーバー
+        VICTORY: 'victory'        // 勝利
     };
+
+    // ゲーム状態
+    const gameState = {
+        phase: PHASE.INTRO,              // 現在のフェーズ
+        collectedPumpkins: new Set(),    // 収集済みかぼちゃの座標セット
+        totalPumpkins: 5,                // 総かぼちゃ数（5に変更）
+        startTime: 0,                    // 開始時刻
+        playerHP: 3,                     // プレイヤーHP
+        maxHP: 3,                        // 最大HP
+        lastDamageTime: 0,               // 最後にダメージを受けた時刻
+        invincibleDuration: 1000,        // 無敵時間（ミリ秒）
+        escapeStartTime: 0,              // 逃走開始時刻
+        escapeDuration: 30000,           // 逃走時間（30秒）
+        betrayalMessageUntil: 0,         // 裏切りメッセージ表示時刻
+        introMessageUntil: 0,            // COLLECT直後のセリフ表示時刻
+        escapeOverlayUntil: 0,           // ESCAPE冒頭のメッセージ表示終了時刻
+        victoryStartTime: 0,             // 勝利演出開始時刻
+        finalTimeSec: null,              // 勝利時の最終タイム（固定表示）
+        returnOverlayUntil: 0,           // RETURNメッセージ表示終了時刻
+        introOverlayUntil: 0,            // INTROの中央メッセージ表示終了時刻
+        canTalk: false,                  // 魔女っこと話せるか
+        showTalkPrompt: false            // プロンプト表示フラグ
+    };
+
+    // INTROの中央メッセージは数秒後に小さなヒントに切り替え
+    gameState.introOverlayUntil = performance.now() + 3500; // 3.5秒
 
     // 空いているマス（道）を収集
     const emptySpaces = [];
@@ -82,6 +106,26 @@ async function initBitECSGame() {
 
     console.log(`🎃 ${pumpkinPositions.length}個のかぼちゃをランダム配置しました！`);
 
+    // 敵キャラクターの位置を収集（マップから）
+    const enemies = [];
+    for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+            const type = map[y][x];
+            // おばけ(2)、魔女(7)、骸骨(10)を敵として登録
+            if (type === 2 || type === 7 || type === 10) {
+                enemies.push({
+                    type: type,
+                    x: x + 0.5,
+                    y: y + 0.5,
+                    // 難易度調整: ゴーストは半分の速度、他は徒歩ペース
+                    // Ghost: 0.015, Witch: 0.015, Skeleton: 0.012
+                    speed: type === 2 ? 0.015 : (type === 7 ? 0.015 : 0.012)
+                });
+            }
+        }
+    }
+    console.log(`👻 ${enemies.length}体の敵を配置しました！`);
+
     // 魔女っこの位置をランダムに配置
     let witchGirlPosition = null;
     if (emptySpaces.length > 0) {
@@ -91,30 +135,11 @@ async function initBitECSGame() {
         console.log(`🧙‍♀️ 魔女っこを (${pos.x}, ${pos.y}) に配置しました！`);
     }
 
-    // Eキーでのインタラクション
-    let isEKeyPressed = false;
+    // キー入力管理
     let isSKeyPressed = false;
     let isAKeyPressed = false;
 
     window.addEventListener('keydown', (e) => {
-        // Eキー: 魔女っこに話しかける
-        if (e.key === 'e' || e.key === 'E') {
-            if (!isEKeyPressed && gameState.canTalk && !gameState.gameStarted) {
-                isEKeyPressed = true;
-                // ゲーム開始イベント
-                gameState.gameStarted = true;
-                gameState.startTime = performance.now();
-                gameState.canTalk = false;
-                gameState.showTalkPrompt = false;
-
-                // ゲーム開始音を鳴らす
-                if (window.soundManager) {
-                    window.soundManager.play('door');
-                }
-                console.log('🎮 ゲーム開始！かぼちゃを全部集めよう！');
-            }
-        }
-
         // Sキー: 音のオン/オフ
         if (e.key === 's' || e.key === 'S') {
             if (!isSKeyPressed && window.soundManager) {
@@ -141,9 +166,6 @@ async function initBitECSGame() {
     });
 
     window.addEventListener('keyup', (e) => {
-        if (e.key === 'e' || e.key === 'E') {
-            isEKeyPressed = false;
-        }
         if (e.key === 's' || e.key === 'S') {
             isSKeyPressed = false;
         }
@@ -151,6 +173,156 @@ async function initBitECSGame() {
             isAKeyPressed = false;
         }
     });
+
+    // フェーズ更新関数
+    function updatePhase(currentTime, playerX, playerY, witchGirlPosition) {
+        if (!witchGirlPosition) return;
+
+        const dx = witchGirlPosition.x - playerX;
+        const dy = witchGirlPosition.y - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        switch (gameState.phase) {
+            case PHASE.INTRO:
+                // 魔女っこに近づくと収集フェーズ開始
+                if (distance < 1.5) {
+                    gameState.phase = PHASE.COLLECT;
+                    gameState.startTime = currentTime;
+                    gameState.introMessageUntil = currentTime + 2000; // 2秒間台詞表示
+                    if (window.soundManager) {
+                        window.soundManager.play('door');
+                    }
+                    console.log('🎮 ゲーム開始！かぼちゃを10個集めよう！');
+                }
+                break;
+
+            case PHASE.COLLECT:
+                // かぼちゃ収集中（収集処理は別の場所で実施）
+                break;
+
+            case PHASE.RETURN:
+                // 魔女っこに近づくと裏切りイベント
+                if (distance < 1.5) {
+                    gameState.phase = PHASE.BETRAYAL;
+                    gameState.betrayalMessageUntil = currentTime + 3000; // 3秒間メッセージ表示
+                    if (window.soundManager) {
+                        window.soundManager.play('ghost'); // 不気味な音
+                    }
+                    console.log('😈 魔女っこ: ふふふ...実はあなたは生け贄なのよ！');
+                }
+                break;
+
+            case PHASE.BETRAYAL:
+                // 3秒後に逃走フェーズ開始
+                if (currentTime >= gameState.betrayalMessageUntil) {
+                    gameState.phase = PHASE.ESCAPE;
+                    gameState.escapeStartTime = currentTime;
+                    gameState.escapeOverlayUntil = currentTime + 3500; // 逃走メッセージは3.5秒
+                    if (window.soundManager) {
+                        window.soundManager.play('door'); // 緊迫感のある音
+                    }
+                    console.log('🏃 逃走開始！30秒間敵から逃げ切ろう！');
+                }
+                break;
+
+            case PHASE.ESCAPE:
+                // 敵を更新
+                updateEnemies(playerX, playerY, currentTime);
+
+                // 逃走時間チェック
+                const escapeElapsed = currentTime - gameState.escapeStartTime;
+                if (escapeElapsed >= gameState.escapeDuration) {
+                    // 勝利
+                    gameState.phase = PHASE.VICTORY;
+                    gameState.victoryStartTime = currentTime;
+                    gameState.finalTimeSec = ((currentTime - gameState.startTime) / 1000).toFixed(2);
+                    if (window.soundManager) {
+                        window.soundManager.play('jump');
+                    }
+                    console.log('🎉 勝利！生け贄の儀式から逃げ切った！');
+                }
+
+                // HP0でゲームオーバー
+                if (gameState.playerHP <= 0) {
+                    gameState.phase = PHASE.GAMEOVER;
+                    console.log('💀 ゲームオーバー...敵に捕まってしまった');
+                }
+                break;
+        }
+    }
+
+    // 敵更新関数（逃走フェーズのみ）
+    function updateEnemies(playerX, playerY, currentTime) {
+        for (let i = 0; i < enemies.length; i++) {
+            const enemy = enemies[i];
+
+            // プレイヤーへの方向ベクトル
+            const dx = playerX - enemy.x;
+            const dy = playerY - enemy.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 0.1) {
+                // 正規化して移動
+                const moveX = (dx / dist) * enemy.speed;
+                const moveY = (dy / dist) * enemy.speed;
+
+                // おばけ(2)は壁をすり抜ける（フェーズ中の圧を上げる）
+                if (enemy.type === 2) {
+                    // ゴーストは壁すり抜け。ただし加速はしない
+                    enemy.x += moveX;
+                    enemy.y += moveY;
+                } else {
+                    // 新しい位置
+                    const newX = enemy.x + moveX;
+                    const newY = enemy.y + moveY;
+
+                    const isWalkable = (x, y) => {
+                        const cx = Math.floor(x);
+                        const cy = Math.floor(y);
+                        return cx >= 0 && cx < map[0].length && cy >= 0 && cy < map.length && map[cy][cx] !== 1;
+                    };
+
+                    if (isWalkable(newX, newY)) {
+                        enemy.x = newX;
+                        enemy.y = newY;
+                    } else {
+                        // スライド移動（Xだけ / Yだけ）
+                        if (isWalkable(enemy.x + moveX, enemy.y)) {
+                            enemy.x += moveX;
+                        } else if (isWalkable(enemy.x, enemy.y + moveY)) {
+                            enemy.y += moveY;
+                        } else {
+                            // 壁に沿って回避（接線方向に小さく）
+                            const tx = -dy / dist;
+                            const ty = dx / dist;
+                            const sign = Math.sin(currentTime * 0.005 + i) > 0 ? 1 : -1;
+                            const sidestep = enemy.speed * 0.8 * sign;
+                            const sx = enemy.x + tx * sidestep;
+                            const sy = enemy.y + ty * sidestep;
+                            if (isWalkable(sx, sy)) {
+                                enemy.x = sx;
+                                enemy.y = sy;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 衝突判定（プレイヤーとの距離）
+            if (dist < 0.5) {
+                // 無敵時間チェック
+                if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
+                    gameState.playerHP--;
+                    gameState.lastDamageTime = currentTime;
+
+                    if (window.soundManager) {
+                        window.soundManager.play('ghost'); // ダメージ音
+                    }
+                    console.log(`💔 ダメージ！ HP: ${gameState.playerHP}/${gameState.maxHP}`);
+                }
+            }
+        }
+    }
 
     // ゲームループ
     let lastTime = performance.now();
@@ -176,41 +348,17 @@ async function initBitECSGame() {
 
             // 移動検知と足音再生
             const moved = Math.abs(playerX - lastPlayerX) > 0.01 || Math.abs(playerY - lastPlayerY) > 0.01;
-            if (moved && window.soundManager) {
+            if (moved && window.soundManager && gameState.phase !== PHASE.GAMEOVER) {
                 window.soundManager.playFootstep(true);
             }
             lastPlayerX = playerX;
             lastPlayerY = playerY;
 
-            // 魔女っことの距離判定（ゲーム未開始時）
-            if (!gameState.gameStarted && witchGirlPosition) {
-                const dx = witchGirlPosition.x - playerX;
-                const dy = witchGirlPosition.y - playerY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            // フェーズ別処理
+            updatePhase(currentTime, playerX, playerY, witchGirlPosition);
 
-                if (distance < 1.5) {
-                    // 近づいたら自動開始（1回のみ）
-                    if (!gameState.autoStartTriggered) {
-                        gameState.autoStartTriggered = true;
-                        gameState.gameStarted = true;
-                        gameState.startTime = performance.now();
-                        gameState.canTalk = false;
-                        gameState.showTalkPrompt = false;
-                        gameState.introMessageUntil = currentTime + 2000; // 2秒間セリフ表示
-
-                        if (window.soundManager) {
-                            window.soundManager.play('door');
-                        }
-                        console.log('🎮 近づいたのでゲーム開始！かぼちゃを全部集めよう！');
-                    }
-                } else {
-                    gameState.canTalk = false;
-                    gameState.showTalkPrompt = false;
-                }
-            }
-
-            // かぼちゃ収集判定（ゲーム開始後かつ未完了時のみ）
-            if (gameState.gameStarted && !gameState.gameCompleted) {
+            // かぼちゃ収集判定（収集フェーズのみ）
+            if (gameState.phase === PHASE.COLLECT) {
                 for (let i = 0; i < pumpkinPositions.length; i++) {
                     const pumpkin = pumpkinPositions[i];
                     const key = `${Math.floor(pumpkin.x)},${Math.floor(pumpkin.y)}`;
@@ -231,24 +379,22 @@ async function initBitECSGame() {
                             }
                             console.log(`🎃 かぼちゃを収集！ (${gameState.collectedPumpkins.size}/${gameState.totalPumpkins})`);
 
-                            // 全部集めたかチェック
+                            // 全部集めたらRETURNフェーズへ
                             if (gameState.collectedPumpkins.size >= gameState.totalPumpkins) {
-                                gameState.gameCompleted = true;
-                                const elapsedTime = ((currentTime - gameState.startTime) / 1000).toFixed(2);
-
-                                // ゲーム完了音を鳴らす
+                                gameState.phase = PHASE.RETURN;
+                                gameState.returnOverlayUntil = currentTime + 3500; // 3.5秒だけ案内を表示
                                 if (window.soundManager) {
                                     window.soundManager.play('jump');
                                 }
-                                console.log(`🎉 全てのかぼちゃを収集しました！ タイム: ${elapsedTime}秒`);
+                                console.log(`🎉 全てのかぼちゃを収集！魔女っこのところへ戻ろう！`);
                             }
                         }
                     }
                 }
-
-                // UI更新
-                updateGameUI(currentTime);
             }
+
+            // UIは全フェーズで更新（表示抜け対策）
+            updateGameUI(currentTime);
         }
 
         // レンダリング（スロットル）
@@ -266,69 +412,141 @@ async function initBitECSGame() {
         const timerElement = document.getElementById('timer');
         const messageElement = document.getElementById('game-message');
         const talkPromptElement = document.getElementById('talk-prompt');
-
-        // 会話プロンプト表示
-        if (talkPromptElement) {
-            if (gameState.showTalkPrompt) {
-                talkPromptElement.textContent = '💬 魔女っこに近づくとスタート！';
-                talkPromptElement.style.display = 'block';
-            } else {
-                talkPromptElement.style.display = 'none';
+        // 軽量ヒント要素（なければ作成）
+        let hintElement = document.getElementById('game-hint');
+        if (!hintElement) {
+            const overlay = document.querySelector('.game-overlay');
+            if (overlay) {
+                hintElement = document.createElement('div');
+                hintElement.id = 'game-hint';
+                hintElement.className = 'game-hint';
+                hintElement.style.display = 'none';
+                overlay.appendChild(hintElement);
             }
         }
 
-        // ゲーム開始前
-        if (!gameState.gameStarted) {
-            if (collectedElement) {
-                collectedElement.textContent = '- / -';
-            }
-            if (timerElement) {
-                timerElement.textContent = '0.0秒';
-            }
-            if (messageElement) {
-                messageElement.textContent = '🧙‍♀️ 魔女っこを探して近づこう！';
-                messageElement.style.display = 'block';
-                messageElement.style.fontSize = '20px';
-                messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
-            }
-            return;
-        }
-
-        // ゲーム開始後
+        // HP表示（逃走フェーズのみ）
         if (collectedElement) {
-            collectedElement.textContent = `${gameState.collectedPumpkins.size} / ${gameState.totalPumpkins}`;
+            if (gameState.phase === PHASE.ESCAPE || gameState.phase === PHASE.GAMEOVER) {
+                // HP表示
+                const hearts = '❤️'.repeat(gameState.playerHP) + '🖤'.repeat(gameState.maxHP - gameState.playerHP);
+                collectedElement.textContent = hearts;
+            } else {
+                // かぼちゃ収集数表示
+                collectedElement.textContent = `${gameState.collectedPumpkins.size} / ${gameState.totalPumpkins}`;
+            }
         }
 
-        if (timerElement && !gameState.gameCompleted) {
-            const elapsed = ((currentTime - gameState.startTime) / 1000).toFixed(1);
-            timerElement.textContent = `${elapsed}秒`;
+        // タイマー表示
+        if (timerElement) {
+            if (gameState.phase === PHASE.ESCAPE) {
+                // 逃走フェーズ: 残り時間
+                const escapeElapsed = currentTime - gameState.escapeStartTime;
+                const remaining = Math.max(0, (gameState.escapeDuration - escapeElapsed) / 1000).toFixed(1);
+                timerElement.textContent = `残り ${remaining}秒`;
+            } else if (gameState.phase === PHASE.COLLECT || gameState.phase === PHASE.RETURN) {
+                // 収集フェーズ: 経過時間
+                const elapsed = ((currentTime - gameState.startTime) / 1000).toFixed(1);
+                timerElement.textContent = `${elapsed}秒`;
+            } else if (gameState.phase === PHASE.VICTORY && gameState.finalTimeSec != null) {
+                // 勝利時は最終タイムを固定表示
+                timerElement.textContent = `タイム ${gameState.finalTimeSec}秒`;
+            } else {
+                timerElement.textContent = '-';
+            }
         }
 
-        // 開始直後のセリフ表示
-        if (!gameState.gameCompleted && currentTime < gameState.introMessageUntil) {
-            if (messageElement) {
-                messageElement.textContent = '🧙‍♀️ 魔女っこ: かぼちゃを全部集めてきてね！';
-                messageElement.style.display = 'block';
-                messageElement.style.fontSize = '22px';
-                messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
+        // メッセージ表示（フェーズごと）
+        if (messageElement) {
+            switch (gameState.phase) {
+                case PHASE.INTRO:
+                    // INTROでは最初の数秒だけ中央に、その後は左上の小ヒントへ
+                    if (currentTime < gameState.introOverlayUntil) {
+                        messageElement.textContent = '🧙‍♀️ 魔女っこを探して近づこう！';
+                        messageElement.style.display = 'block';
+                        messageElement.style.fontSize = '20px';
+                        messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
+                        if (hintElement) hintElement.style.display = 'none';
+                    } else {
+                        messageElement.style.display = 'none';
+                        if (hintElement) {
+                            hintElement.textContent = '🧙‍♀️ 魔女っこを探して近づこう！';
+                            hintElement.style.display = 'block';
+                        }
+                    }
+                    break;
+
+                case PHASE.COLLECT:
+                    // 最初の2秒間は魔女っこの台詞を表示
+                    if (currentTime < gameState.introMessageUntil) {
+                        messageElement.textContent = '🧙‍♀️ 魔女っこ: かぼちゃを全部集めてきてね！';
+                        messageElement.style.display = 'block';
+                        messageElement.style.fontSize = '22px';
+                        messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
+                    } else {
+                        messageElement.style.display = 'none';
+                    }
+                    // COLLECT以降は小ヒントを非表示
+                    if (hintElement) hintElement.style.display = 'none';
+                    break;
+
+                case PHASE.RETURN:
+                    // RETURNメッセージは一定時間だけ中央に表示
+                    if (currentTime < gameState.returnOverlayUntil) {
+                        messageElement.textContent = '🎃 全部集めた！魔女っこのところへ戻ろう！';
+                        messageElement.style.display = 'block';
+                        messageElement.style.fontSize = '22px';
+                        messageElement.style.backgroundColor = 'rgba(255, 140, 0, 0.9)';
+                    } else {
+                        messageElement.style.display = 'none';
+                    }
+                    if (hintElement) hintElement.style.display = 'none';
+                    break;
+
+                case PHASE.BETRAYAL:
+                    messageElement.innerHTML = '😈 魔女っこ: ふふふ...実はあなたは生け贄なのよ！<br>さあ、みんな、彼を捕まえて！';
+                    messageElement.style.display = 'block';
+                    messageElement.style.fontSize = '22px';
+                    messageElement.style.backgroundColor = 'rgba(139, 0, 0, 0.95)';
+                    if (hintElement) hintElement.style.display = 'none';
+                    break;
+
+                case PHASE.ESCAPE:
+                    // 逃走フェーズの導入メッセージを3.5秒だけ表示
+                    if (currentTime < gameState.escapeOverlayUntil) {
+                        messageElement.textContent = '🏃 逃げろ！敵から30秒逃げ切れ！';
+                        messageElement.style.display = 'block';
+                        messageElement.style.fontSize = '20px';
+                        messageElement.style.backgroundColor = 'rgba(255, 0, 0, 0.85)';
+                    } else {
+                        messageElement.style.display = 'none';
+                    }
+                    if (hintElement) hintElement.style.display = 'none';
+                    break;
+
+                case PHASE.GAMEOVER:
+                    messageElement.innerHTML = '💀 ゲームオーバー<br>敵に捕まってしまった...<br><small>F5でリトライ</small>';
+                    messageElement.style.display = 'block';
+                    messageElement.style.fontSize = '28px';
+                    messageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
+                    break;
+
+                case PHASE.VICTORY:
+                    const finalTime = gameState.finalTimeSec != null
+                        ? gameState.finalTimeSec
+                        : ((currentTime - gameState.startTime) / 1000).toFixed(2);
+                    messageElement.innerHTML = `🎉 勝利！<br>生け贄の儀式から逃げ切った！<br>タイム: ${finalTime}秒`;
+                    messageElement.style.display = 'block';
+                    messageElement.style.fontSize = '28px';
+                    messageElement.style.backgroundColor = 'rgba(0, 100, 0, 0.95)';
+                    if (hintElement) hintElement.style.display = 'none';
+                    break;
             }
-            return;
         }
 
-        // ゲーム完了
-        if (gameState.gameCompleted) {
-            const finalTime = ((currentTime - gameState.startTime) / 1000).toFixed(2);
-            if (messageElement) {
-                messageElement.textContent = `🎉 おめでとう！全て集めました！ タイム: ${finalTime}秒`;
-                messageElement.style.display = 'block';
-                messageElement.style.fontSize = '24px';
-                messageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
-            }
-        } else {
-            // ゲーム中はメッセージを非表示
-            if (messageElement) {
-                messageElement.style.display = 'none';
-            }
+        // プロンプト表示（使わないので非表示）
+        if (talkPromptElement) {
+            talkPromptElement.style.display = 'none';
         }
     }
 
@@ -350,10 +568,109 @@ async function initBitECSGame() {
         const zBuffer = render3D(ctx, canvas, playerX, playerY, playerAngle);
 
         // スプライト描画（オブジェクトを壁の上に描画、収集済みかぼちゃを除外、Z-バッファでクリッピング）
-        renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer);
+        // 逃走フェーズでは敵も動的に描画
+        const dynamicEnemies = gameState.phase === PHASE.ESCAPE ? enemies : null;
+        renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer, dynamicEnemies);
 
-        // ミニマップ
-        renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition);
+        // ミニマップ（逃走フェーズでは敵も表示）
+        renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition, dynamicEnemies, gameState.phase);
+
+        // 勝利演出（周囲が消えていく + パーティクル）
+        if (gameState.phase === PHASE.VICTORY) {
+            const now = performance.now();
+            const progress = Math.min(1, (now - gameState.victoryStartTime) / 2500);
+            renderVictoryVFX(ctx, canvas, progress);
+            drawVictoryParticles(ctx, canvas, progress);
+        }
+    }
+
+    // 勝利時の演出：中央を残して周囲が黒くフェードアウト
+    function renderVictoryVFX(ctx, canvas, progress) {
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const maxRadius = Math.sqrt(cx * cx + cy * cy);
+        const holeRadius = Math.max(0, maxRadius * (1 - progress));
+
+        ctx.save();
+        // フルスクリーンを暗転
+        ctx.fillStyle = `rgba(0,0,0,${Math.min(1, 0.9 * progress)})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 中央に穴をあける
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(cx, cy, holeRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 通常描画に戻す
+        ctx.globalCompositeOperation = 'source-over';
+
+        // エッジのハロー（外方向へ広がる）
+        const halo = ctx.createRadialGradient(cx, cy, holeRadius, cx, cy, holeRadius + 100);
+        halo.addColorStop(0, 'rgba(0,0,0,0)');
+        halo.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.9 * progress)})`);
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, holeRadius + 100, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 最初のフラッシュ（0.2秒程度）
+        if (progress < 0.08) {
+            const flash = 1 - (progress / 0.08);
+            ctx.fillStyle = `rgba(255,255,255,${0.6 * flash})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        ctx.restore();
+    }
+
+    // 勝利パーティクル（花火/紙吹雪風）
+    let victoryParticles = null;
+    function ensureVictoryParticles(canvas) {
+        if (victoryParticles) return;
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const count = 120;
+        const colors = ['#ffeb3b', '#ff9800', '#ff69b4', '#69f0ae', '#64b5f6'];
+        victoryParticles = [];
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 120 + Math.random() * 260; // px over full duration
+            const size = 2 + Math.random() * 3;
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            victoryParticles.push({ angle, speed, size, color });
+        }
+    }
+
+    function drawVictoryParticles(ctx, canvas, progress) {
+        ensureVictoryParticles(canvas);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+
+        // 中央の穴半径に合わせてクリップ
+        const maxRadius = Math.sqrt(cx * cx + cy * cy);
+        const holeRadius = Math.max(0, maxRadius * (1 - progress));
+        const ease = (t) => 1 - Math.pow(1 - t, 2); // easeOutQuad
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, holeRadius, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < victoryParticles.length; i++) {
+            const p = victoryParticles[i];
+            const r = ease(progress) * p.speed;
+            const x = cx + Math.cos(p.angle) * r;
+            const y = cy + Math.sin(p.angle) * r;
+            const alpha = Math.max(0, 1 - progress);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(x, y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
     }
 
     // 星の位置を生成（初回のみ）
@@ -667,7 +984,7 @@ async function initBitECSGame() {
         }
     }
 
-    function renderMinimap(playerX, playerY, playerAngle, pumpkinPositions = [], collectedPumpkins = new Set(), witchGirlPosition = null) {
+    function renderMinimap(playerX, playerY, playerAngle, pumpkinPositions = [], collectedPumpkins = new Set(), witchGirlPosition = null, dynamicEnemies = null, phase = PHASE.INTRO) {
         const minimapElement = document.getElementById('minimap');
         if (!minimapElement) return;
 
@@ -768,8 +1085,8 @@ async function initBitECSGame() {
                 label.style.zIndex = '13';
                 pingLayer.appendChild(label);
             }
-            // 自動開始後は非表示
-            pingLayer.style.display = gameState.gameStarted ? 'none' : 'block';
+            // ゲーム開始（INTRO以外）後は非表示
+            pingLayer.style.display = (gameState.phase === PHASE.INTRO) ? 'block' : 'none';
         }
 
         // 動的に配置されたかぼちゃを描画（収集済みは除外）
@@ -808,8 +1125,8 @@ async function initBitECSGame() {
             witchCell.style.zIndex = '15';
             overlay.appendChild(witchCell);
 
-            // ガイドライン（未開始時のみ）
-            if (!gameState.gameStarted) {
+            // ガイドライン（INTROフェーズのみ）
+            if (gameState.phase === PHASE.INTRO) {
                 const guide = document.createElement('div');
                 guide.className = 'minimap-guide';
                 const pX = playerX * cellSize;
@@ -826,6 +1143,25 @@ async function initBitECSGame() {
                 guide.style.transform = `rotate(${ang}rad)`;
                 guide.style.zIndex = '14';
                 overlay.appendChild(guide);
+            }
+        }
+
+        // 動的な敵を描画（逃走フェーズのみ）
+        if (dynamicEnemies && phase === PHASE.ESCAPE) {
+            for (let i = 0; i < dynamicEnemies.length; i++) {
+                const enemy = dynamicEnemies[i];
+                const enemyCell = document.createElement('div');
+                enemyCell.className = 'minimap-enemy';
+                enemyCell.style.position = 'absolute';
+                enemyCell.style.left = `${enemy.x * cellSize - 4}px`;
+                enemyCell.style.top = `${enemy.y * cellSize - 4}px`;
+                enemyCell.style.width = '8px';
+                enemyCell.style.height = '8px';
+                enemyCell.style.backgroundColor = '#ff0000'; // 赤色（敵）
+                enemyCell.style.borderRadius = '50%';
+                enemyCell.style.zIndex = '18';
+                enemyCell.style.boxShadow = '0 0 5px #ff0000';
+                overlay.appendChild(enemyCell);
             }
         }
 

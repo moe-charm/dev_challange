@@ -32,19 +32,27 @@ function collectStaticSprites(map) {
     return sprites;
 }
 
-export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, time, collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null, zBuffer = null) {
+export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, time, collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null, zBuffer = null, dynamicEnemies = null) {
     // 初回のみマップからスプライトを収集（かぼちゃ以外）
     if (!cachedSprites) {
         cachedSprites = collectStaticSprites(map);
     }
 
     const visibleSprites = [];
+
+    // 動的な敵を使用する場合は、静的スプライトから敵タイプ(2,7,10)を除外
+    const useStaticEnemies = !dynamicEnemies;
     const maxDistance = 15;
     const fov = Math.PI / 3;
 
     // キャッシュされたスプライト（かぼちゃ以外）から可視判定
     for (let i = 0; i < cachedSprites.length; i++) {
         const sprite = cachedSprites[i];
+
+        // 動的敵を使用する場合、敵タイプ（2,7,10）はスキップ
+        if (!useStaticEnemies && (sprite.type === 2 || sprite.type === 7 || sprite.type === 10)) {
+            continue;
+        }
 
         const dx = sprite.x - playerX;
         const dy = sprite.y - playerY;
@@ -131,6 +139,34 @@ export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, t
         }
     }
 
+    // 動的な敵を追加（逃走フェーズのみ）
+    if (dynamicEnemies) {
+        for (let i = 0; i < dynamicEnemies.length; i++) {
+            const enemy = dynamicEnemies[i];
+            const dx = enemy.x - playerX;
+            const dy = enemy.y - playerY;
+            const distanceSquared = dx * dx + dy * dy;
+
+            if (distanceSquared < maxDistance * maxDistance && distanceSquared > 0.25) {
+                const angle = Math.atan2(dy, dx) - playerAngle;
+
+                let normalizedAngle = angle;
+                while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+                while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+
+                if (normalizedAngle > -fov && normalizedAngle < fov) {
+                    visibleSprites.push({
+                        type: enemy.type,
+                        x: enemy.x,
+                        y: enemy.y,
+                        distance: Math.sqrt(distanceSquared),
+                        angle: normalizedAngle
+                    });
+                }
+            }
+        }
+    }
+
     // 距離順にソート（遠い順）
     visibleSprites.sort((a, b) => b.distance - a.distance);
 
@@ -178,6 +214,18 @@ function drawSprite(ctx, canvas, sprite, playerAngle, time, zBuffer) {
         if (visiblePoints < checkPoints / 2) {
             return;
         }
+    }
+
+    // 敵の視認性向上: ほんのり赤いハロー
+    const isEnemy = (type === 2 || type === 7 || type === 10);
+    if (isEnemy) {
+        const haloAlpha = Math.max(0.15, 1 - distance / 15) * 0.5;
+        ctx.save();
+        ctx.fillStyle = `rgba(255,0,0,${haloAlpha})`;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, spriteWidth * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 
     // タイプに応じて描画
