@@ -375,9 +375,9 @@ async function initBitECSGame() {
                 const moveX = (dx / dist) * enemy.speed;
                 const moveY = (dy / dist) * enemy.speed;
 
-                // おばけ(2)は壁をすり抜ける（フェーズ中の圧を上げる）
-                if (enemy.type === 2) {
-                    // ゴーストは壁すり抜け。ただし加速はしない
+                // おばけ(2)と魔女っこ(11)は壁をすり抜ける（魔法の力で！）
+                if (enemy.type === 2 || enemy.type === 11) {
+                    // ゴーストと魔女っこは壁すり抜け
                     enemy.x += moveX;
                     enemy.y += moveY;
                 } else {
