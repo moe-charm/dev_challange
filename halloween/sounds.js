@@ -12,6 +12,8 @@ class SoundManager {
         this.ambientSound = null;
         this.heartbeatSound = null; // 心臓の鼓動音（継続音）
         this.warningSound = null;   // 警告音（継続音）
+        this.lastCatMeow = 0;       // 最後に猫が鳴いた時刻
+        this.catMeowInterval = 2000; // 猫の鳴き声の間隔（2秒）
         this.initAudio();
     }
     
@@ -60,6 +62,9 @@ class SoundManager {
 
         // 勝利ファンファーレ
         this.sounds.victory = () => this.createVictorySound();
+
+        // 猫の鳴き声
+        this.sounds.meow = () => this.createMeowSound();
     }
     
     // 足音の生成
@@ -312,6 +317,53 @@ class SoundManager {
         noise.start(now);
     }
 
+    // 猫の鳴き声「にゃーん」
+    createMeowSound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.5;
+
+        // 2つの周波数でにゃーん感を出す
+        const oscillator1 = this.audioContext.createOscillator();
+        const oscillator2 = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        oscillator1.connect(filter);
+        oscillator2.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // 高めの周波数から下がる（にゃー）
+        oscillator1.frequency.setValueAtTime(800, now);
+        oscillator1.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+        oscillator1.frequency.exponentialRampToValueAtTime(500, now + duration);
+        oscillator1.type = 'sawtooth';
+
+        oscillator2.frequency.setValueAtTime(1000, now);
+        oscillator2.frequency.exponentialRampToValueAtTime(500, now + 0.15);
+        oscillator2.frequency.exponentialRampToValueAtTime(600, now + duration);
+        oscillator2.type = 'triangle';
+
+        // フィルターで柔らかく
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1200, now);
+        filter.frequency.exponentialRampToValueAtTime(600, now + duration);
+        filter.Q.value = 2;
+
+        // 音量の変化（にゃーんの感じ）
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.15, now + 0.02);
+        gainNode.gain.linearRampToValueAtTime(0.12, now + 0.15);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+        oscillator1.start(now);
+        oscillator2.start(now);
+        oscillator1.stop(now + duration);
+        oscillator2.stop(now + duration);
+    }
+
     // 心臓の鼓動音（継続的にループ）
     createHeartbeatSound(distance) {
         if (!this.audioContext) return;
@@ -460,6 +512,20 @@ class SoundManager {
             // 遠い: 全て停止
             this.stopHeartbeat();
             this.stopWarning();
+        }
+    }
+
+    // 猫接近サウンドの更新（距離に応じて）
+    updateCatProximitySound(closestCatDistance) {
+        if (!this.enabled) return;
+
+        const now = Date.now();
+
+        // 猫が2マス以内にいて、前回の鳴き声から一定時間経過していたら鳴く
+        if (closestCatDistance < 2.0 && now - this.lastCatMeow > this.catMeowInterval) {
+            this.play('meow');
+            this.lastCatMeow = now;
+            console.log('🐱 にゃーん！');
         }
     }
 

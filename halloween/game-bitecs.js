@@ -71,7 +71,8 @@ async function initBitECSGame() {
         returnOverlayUntil: 0,           // RETURNメッセージ表示終了時刻
         introOverlayUntil: 0,            // INTROの中央メッセージ表示終了時刻
         canTalk: false,                  // 魔女っこと話せるか
-        showTalkPrompt: false            // プロンプト表示フラグ
+        showTalkPrompt: false,           // プロンプト表示フラグ
+        catsBetrayed: false              // 猫が裏切ったか（30秒切ったらtrue）
     };
 
     // INTROの中央メッセージは数秒後に小さなヒントに切り替え
@@ -108,6 +109,7 @@ async function initBitECSGame() {
 
     // 敵キャラクターの位置を収集（マップから）
     const enemies = [];
+    const cats = []; // 猫は最初は敵ではない
     for (let y = 0; y < map.length; y++) {
         for (let x = 0; x < map[y].length; x++) {
             const type = map[y][x];
@@ -122,9 +124,21 @@ async function initBitECSGame() {
                     speed: baseSpeed       // 現在の速度（段階的に上昇）
                 });
             }
+            // 猫(9)は別配列に保存（30秒切ったら敵になる）
+            if (type === 9) {
+                cats.push({
+                    type: type,
+                    x: x + 0.5,
+                    y: y + 0.5,
+                    baseSpeed: 0.018,  // 猫は少し速い！
+                    speed: 0.018,
+                    isCat: true        // 猫フラグ
+                });
+            }
         }
     }
     console.log(`👻 ${enemies.length}体の敵を配置しました！`);
+    console.log(`🐱 ${cats.length}匹の猫を配置しました（30秒で裏切ります）！`);
 
     // 魔女っこの位置をランダムに配置
     let witchGirlPosition = null;
@@ -261,6 +275,7 @@ async function initBitECSGame() {
     function updateEnemies(playerX, playerY, currentTime) {
         // 経過時間に応じて難易度を段階的に上昇
         const escapeElapsed = currentTime - gameState.escapeStartTime;
+        const remainingTime = gameState.escapeDuration - escapeElapsed;
         let speedMultiplier = 1.0;
 
         if (escapeElapsed >= 45000) {
@@ -272,8 +287,22 @@ async function initBitECSGame() {
         }
         // 0-30秒: 通常速度（1.0倍）
 
+        // 残り時間30秒切ったら猫が裏切る！
+        if (!gameState.catsBetrayed && remainingTime <= 30000) {
+            gameState.catsBetrayed = true;
+            // 猫を敵配列に追加
+            cats.forEach(cat => {
+                enemies.push(cat);
+            });
+            console.log(`🐱💔 猫が裏切った！残り${(remainingTime / 1000).toFixed(1)}秒`);
+            if (window.soundManager) {
+                window.soundManager.play('ghost'); // 裏切り音
+            }
+        }
+
         // 最も近い敵との距離を追跡
         let closestDistance = Infinity;
+        let closestCatDistance = Infinity;
 
         for (let i = 0; i < enemies.length; i++) {
             const enemy = enemies[i];
@@ -288,6 +317,11 @@ async function initBitECSGame() {
             // 最も近い敵との距離を更新
             if (dist < closestDistance) {
                 closestDistance = dist;
+            }
+
+            // 猫との距離も追跡
+            if (enemy.isCat && dist < closestCatDistance) {
+                closestCatDistance = dist;
             }
 
             if (dist > 0.1) {
@@ -355,6 +389,8 @@ async function initBitECSGame() {
         // 敵接近サウンドの更新（最も近い敵との距離で判定）
         if (window.soundManager) {
             window.soundManager.updateEnemyProximitySound(closestDistance);
+            // 猫が近くにいたら「にゃーん」
+            window.soundManager.updateCatProximitySound(closestCatDistance);
         }
     }
 
@@ -667,6 +703,7 @@ async function initBitECSGame() {
 
     // 勝利パーティクル（花火/紙吹雪風）- 派手に増量！
     let victoryParticles = null;
+    let fireworks = null; // 花火エフェクト
     function ensureVictoryParticles(canvas) {
         if (victoryParticles) return;
         const cx = canvas.width / 2;
@@ -680,6 +717,33 @@ async function initBitECSGame() {
             const size = 2 + Math.random() * 5; // サイズも大きく
             const color = colors[Math.floor(Math.random() * colors.length)];
             victoryParticles.push({ angle, speed, size, color });
+        }
+
+        // 花火エフェクト（複数の位置から爆発）
+        fireworks = [];
+        const fireworkCount = 6; // 6箇所で花火
+        for (let i = 0; i < fireworkCount; i++) {
+            const fx = canvas.width * (0.2 + Math.random() * 0.6);
+            const fy = canvas.height * (0.2 + Math.random() * 0.5);
+            const delay = Math.random() * 0.6; // 爆発タイミングをずらす
+            const particleCount = 60;
+            const fireworkColor = colors[Math.floor(Math.random() * colors.length)];
+
+            const particles = [];
+            for (let j = 0; j < particleCount; j++) {
+                const angle = (j / particleCount) * Math.PI * 2;
+                const speed = 80 + Math.random() * 120;
+                const size = 2 + Math.random() * 4;
+                particles.push({ angle, speed, size });
+            }
+
+            fireworks.push({
+                x: fx,
+                y: fy,
+                delay: delay,
+                color: fireworkColor,
+                particles: particles
+            });
         }
     }
 
@@ -711,6 +775,45 @@ async function initBitECSGame() {
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+        ctx.restore();
+
+        // 花火エフェクトを描画
+        drawFireworks(ctx, canvas, progress);
+    }
+
+    // 花火エフェクトの描画
+    function drawFireworks(ctx, canvas, progress) {
+        if (!fireworks) return;
+
+        const ease = (t) => 1 - Math.pow(1 - t, 2); // easeOutQuad
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+
+        fireworks.forEach(firework => {
+            // 遅延を考慮した進行度
+            const localProgress = Math.max(0, Math.min(1, (progress - firework.delay) / (1 - firework.delay)));
+            if (localProgress <= 0) return;
+
+            const fadeIn = Math.min(1, localProgress * 5); // 素早くフェードイン
+            const fadeOut = Math.max(0, 1 - (localProgress - 0.7) / 0.3); // 後半でフェードアウト
+            const alpha = Math.min(fadeIn, fadeOut);
+
+            firework.particles.forEach(p => {
+                const r = ease(localProgress) * p.speed;
+                const x = firework.x + Math.cos(p.angle) * r;
+                const y = firework.y + Math.sin(p.angle) * r + localProgress * 80; // 重力で下に落ちる
+
+                ctx.fillStyle = firework.color;
+                ctx.globalAlpha = alpha;
+                ctx.beginPath();
+                ctx.arc(x, y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        });
+
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
     }
 
