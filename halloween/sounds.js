@@ -65,6 +65,12 @@ class SoundManager {
 
         // 猫の鳴き声
         this.sounds.meow = () => this.createMeowSound();
+
+        // 回復音
+        this.sounds.heal = () => this.createHealSound();
+
+        // 爆発音
+        this.sounds.explosion = () => this.createExplosionSound();
     }
     
     // 足音の生成
@@ -362,6 +368,95 @@ class SoundManager {
         oscillator2.start(now);
         oscillator1.stop(now + duration);
         oscillator2.stop(now + duration);
+    }
+
+    // 回復音（キラキラした上昇音）
+    createHealSound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.6;
+
+        // 3つの音で和音を作る（ドミソ）
+        const frequencies = [523.25, 659.25, 783.99]; // C5, E5, G5
+
+        frequencies.forEach((freq, index) => {
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+
+            // キラキラ感のある上昇
+            oscillator.frequency.setValueAtTime(freq, now);
+            oscillator.frequency.exponentialRampToValueAtTime(freq * 1.5, now + duration);
+            oscillator.type = 'sine';
+
+            // 音量エンベロープ
+            const delay = index * 0.05; // 少しずつ遅延
+            gainNode.gain.setValueAtTime(0, now + delay);
+            gainNode.gain.linearRampToValueAtTime(0.15, now + delay + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+            oscillator.start(now + delay);
+            oscillator.stop(now + duration);
+        });
+    }
+
+    // 爆発音（ドーン！）
+    createExplosionSound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.8;
+
+        // ノイズで爆発音を作る
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const output = buffer.getChannelData(0);
+
+        // ホワイトノイズ生成
+        for (let i = 0; i < bufferSize; i++) {
+            output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        const gainNode = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        noise.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // ローパスフィルターで丸みをつける
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, now);
+        filter.frequency.exponentialRampToValueAtTime(50, now + duration);
+
+        // 音量エンベロープ（爆発的な立ち上がり）
+        gainNode.gain.setValueAtTime(0.4, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+        noise.start(now);
+
+        // 低音の「ドーン」を追加
+        const bass = this.audioContext.createOscillator();
+        const bassGain = this.audioContext.createGain();
+
+        bass.connect(bassGain);
+        bassGain.connect(this.audioContext.destination);
+
+        bass.frequency.setValueAtTime(60, now);
+        bass.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+        bass.type = 'sine';
+
+        bassGain.gain.setValueAtTime(0.3, now);
+        bassGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+        bass.start(now);
+        bass.stop(now + 0.3);
     }
 
     // 心臓の鼓動音（継続的にループ）

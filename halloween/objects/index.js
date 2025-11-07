@@ -32,7 +32,7 @@ function collectStaticSprites(map) {
     return sprites;
 }
 
-export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, time, collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null, zBuffer = null, dynamicEnemies = null) {
+export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, time, collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null, zBuffer = null, dynamicEnemies = null, collectedLanterns = new Set(), explodedBats = new Set()) {
     // 初回のみマップからスプライトを収集（かぼちゃ以外）
     if (!cachedSprites) {
         cachedSprites = collectStaticSprites(map);
@@ -52,6 +52,22 @@ export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, t
         // 動的敵を使用する場合、敵タイプ（2,7,10）はスキップ
         if (!useStaticEnemies && (sprite.type === 2 || sprite.type === 7 || sprite.type === 10)) {
             continue;
+        }
+
+        // ランタン（type 4）が収集済みならスキップ
+        if (sprite.type === 4) {
+            const key = `${Math.floor(sprite.x)},${Math.floor(sprite.y)}`;
+            if (collectedLanterns.has(key)) {
+                continue;
+            }
+        }
+
+        // コウモリ（type 8）が爆発済みならスキップ
+        if (sprite.type === 8) {
+            const key = `${Math.floor(sprite.x)},${Math.floor(sprite.y)}`;
+            if (explodedBats.has(key)) {
+                continue;
+            }
         }
 
         const dx = sprite.x - playerX;

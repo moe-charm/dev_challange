@@ -72,7 +72,9 @@ async function initBitECSGame() {
         introOverlayUntil: 0,            // INTROの中央メッセージ表示終了時刻
         canTalk: false,                  // 魔女っこと話せるか
         showTalkPrompt: false,           // プロンプト表示フラグ
-        catsBetrayed: false              // 猫が裏切ったか（30秒切ったらtrue）
+        catsBetrayed: false,             // 猫が裏切ったか（30秒切ったらtrue）
+        collectedLanterns: new Set(),    // 収集済みランタン
+        explodedBats: new Set()          // 爆発済みコウモリ
     };
 
     // INTROの中央メッセージは数秒後に小さなヒントに切り替え
@@ -139,6 +141,28 @@ async function initBitECSGame() {
     }
     console.log(`👻 ${enemies.length}体の敵を配置しました！`);
     console.log(`🐱 ${cats.length}匹の猫を配置しました（30秒で裏切ります）！`);
+
+    // ランタンの位置を収集（マップから）
+    const lanterns = [];
+    for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+            if (map[y][x] === 4) { // ランタン
+                lanterns.push({ x: x + 0.5, y: y + 0.5 });
+            }
+        }
+    }
+    console.log(`🏮 ${lanterns.length}個のランタンを配置しました！`);
+
+    // コウモリの位置を収集（マップから）
+    const bats = [];
+    for (let y = 0; y < map.length; y++) {
+        for (let x = 0; x < map[y].length; x++) {
+            if (map[y][x] === 8) { // コウモリ
+                bats.push({ x: x + 0.5, y: y + 0.5 });
+            }
+        }
+    }
+    console.log(`🦇 ${bats.length}匹のコウモリを配置しました（近づくと爆発！）！`);
 
     // 魔女っこの位置をランダムに配置
     let witchGirlPosition = null;
@@ -463,6 +487,71 @@ async function initBitECSGame() {
                 }
             }
 
+            // ランタン回復判定（逃走フェーズのみ、HP減っている時のみ）
+            if (gameState.phase === PHASE.ESCAPE && gameState.playerHP < gameState.maxHP) {
+                for (let i = 0; i < lanterns.length; i++) {
+                    const lantern = lanterns[i];
+                    const key = `${Math.floor(lantern.x)},${Math.floor(lantern.y)}`;
+
+                    // 未収集のランタンのみチェック
+                    if (!gameState.collectedLanterns.has(key)) {
+                        const dx = lantern.x - playerX;
+                        const dy = lantern.y - playerY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        // 距離が0.5以下なら回復
+                        if (distance < 0.5) {
+                            gameState.collectedLanterns.add(key);
+                            gameState.playerHP = Math.min(gameState.maxHP, gameState.playerHP + 1);
+
+                            // 回復音を鳴らす
+                            if (window.soundManager) {
+                                window.soundManager.play('heal');
+                            }
+                            console.log(`🏮 ランタン取得！HP回復！ (${gameState.playerHP}/${gameState.maxHP})`);
+                        }
+                    }
+                }
+            }
+
+            // コウモリ爆発判定（逃走フェーズのみ）
+            if (gameState.phase === PHASE.ESCAPE) {
+                for (let i = 0; i < bats.length; i++) {
+                    const bat = bats[i];
+                    const key = `${Math.floor(bat.x)},${Math.floor(bat.y)}`;
+
+                    // 未爆発のコウモリのみチェック
+                    if (!gameState.explodedBats.has(key)) {
+                        const dx = bat.x - playerX;
+                        const dy = bat.y - playerY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        // 距離が1.0以下なら爆発！
+                        if (distance < 1.0) {
+                            gameState.explodedBats.add(key);
+
+                            // ダメージ判定（無敵時間チェック）
+                            if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
+                                gameState.playerHP--;
+                                gameState.lastDamageTime = currentTime;
+
+                                // 爆発音を鳴らす
+                                if (window.soundManager) {
+                                    window.soundManager.play('explosion');
+                                }
+                                console.log(`🦇💥 コウモリが爆発！ダメージ！ HP: ${gameState.playerHP}/${gameState.maxHP}`);
+                            } else {
+                                // 無敵時間中でもコウモリは消える
+                                if (window.soundManager) {
+                                    window.soundManager.play('explosion');
+                                }
+                                console.log(`🦇💥 コウモリが爆発！（無敵時間中）`);
+                            }
+                        }
+                    }
+                }
+            }
+
             // UIは全フェーズで更新（表示抜け対策）
             updateGameUI(currentTime);
         }
@@ -647,7 +736,7 @@ async function initBitECSGame() {
         // スプライト描画（オブジェクトを壁の上に描画、収集済みかぼちゃを除外、Z-バッファでクリッピング）
         // 逃走フェーズでは敵も動的に描画
         const dynamicEnemies = gameState.phase === PHASE.ESCAPE ? enemies : null;
-        renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer, dynamicEnemies);
+        renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer, dynamicEnemies, gameState.collectedLanterns, gameState.explodedBats);
 
         // ミニマップ（逃走フェーズでは敵も表示）
         renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition, dynamicEnemies, gameState.phase);
