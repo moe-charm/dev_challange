@@ -71,6 +71,12 @@ class SoundManager {
 
         // 爆発音
         this.sounds.explosion = () => this.createExplosionSound();
+
+        // 魔女っこの笑い声
+        this.sounds.witchLaugh = () => this.createWitchLaughSound();
+
+        // 魔法攻撃音
+        this.sounds.magic = () => this.createMagicSound();
     }
     
     // 足音の生成
@@ -457,6 +463,101 @@ class SoundManager {
 
         bass.start(now);
         bass.stop(now + 0.3);
+    }
+
+    // 魔女っこの笑い声「ふふふ...」
+    createWitchLaughSound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+        const duration = 1.2;
+
+        // 笑い声の3つの「ふ」を表現
+        const laughs = [
+            { start: 0, freq: 350 },
+            { start: 0.35, freq: 380 },
+            { start: 0.7, freq: 320 }
+        ];
+
+        laughs.forEach(laugh => {
+            const oscillator1 = this.audioContext.createOscillator();
+            const oscillator2 = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            const filter = this.audioContext.createBiquadFilter();
+
+            oscillator1.connect(filter);
+            oscillator2.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+
+            // 笑い声の周波数変化
+            oscillator1.frequency.setValueAtTime(laugh.freq, now + laugh.start);
+            oscillator1.frequency.exponentialRampToValueAtTime(laugh.freq * 0.8, now + laugh.start + 0.25);
+            oscillator1.type = 'triangle';
+
+            oscillator2.frequency.setValueAtTime(laugh.freq * 1.5, now + laugh.start);
+            oscillator2.frequency.exponentialRampToValueAtTime(laugh.freq * 1.2, now + laugh.start + 0.25);
+            oscillator2.type = 'sine';
+
+            // フィルター
+            filter.type = 'bandpass';
+            filter.frequency.value = 500;
+            filter.Q.value = 3;
+
+            // エンベロープ
+            gainNode.gain.setValueAtTime(0, now + laugh.start);
+            gainNode.gain.linearRampToValueAtTime(0.12, now + laugh.start + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + laugh.start + 0.25);
+
+            oscillator1.start(now + laugh.start);
+            oscillator2.start(now + laugh.start);
+            oscillator1.stop(now + laugh.start + 0.25);
+            oscillator2.stop(now + laugh.start + 0.25);
+        });
+    }
+
+    // 魔法攻撃音「シュワーン」
+    createMagicSound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+        const duration = 0.6;
+
+        // 高音のキラキラ＋低音のブーン
+        const oscillator1 = this.audioContext.createOscillator();
+        const oscillator2 = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        oscillator1.connect(filter);
+        oscillator2.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // 高音（キラキラ）
+        oscillator1.frequency.setValueAtTime(1200, now);
+        oscillator1.frequency.exponentialRampToValueAtTime(600, now + duration);
+        oscillator1.type = 'sine';
+
+        // 低音（ブーン）
+        oscillator2.frequency.setValueAtTime(150, now);
+        oscillator2.frequency.exponentialRampToValueAtTime(80, now + duration);
+        oscillator2.type = 'triangle';
+
+        // フィルター（シュワーン感）
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2000, now);
+        filter.frequency.exponentialRampToValueAtTime(400, now + duration);
+        filter.Q.value = 5;
+
+        // エンベロープ
+        gainNode.gain.setValueAtTime(0.15, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+        oscillator1.start(now);
+        oscillator2.start(now);
+        oscillator1.stop(now + duration);
+        oscillator2.stop(now + duration);
     }
 
     // 心臓の鼓動音（継続的にループ）

@@ -75,7 +75,9 @@ async function initBitECSGame() {
         catsBetrayed: false,             // 猫が裏切ったか（30秒切ったらtrue）
         collectedLanterns: new Set(),    // 収集済みランタン
         explodedBats: new Set(),         // 爆発済みコウモリ
-        explosions: []                   // アクティブな爆発エフェクト
+        explosions: [],                  // アクティブな爆発エフェクト
+        witchGirlAttacking: false,       // 魔女っこが攻撃してきているか
+        magicAttacks: []                 // アクティブな魔法攻撃
     };
 
     // INTROの中央メッセージは数秒後に小さなヒントに切り替え
@@ -325,6 +327,25 @@ async function initBitECSGame() {
             }
         }
 
+        // 逃走開始10秒後に魔女っこが攻撃開始！
+        if (!gameState.witchGirlAttacking && escapeElapsed >= 10000 && witchGirlPosition) {
+            gameState.witchGirlAttacking = true;
+            // 魔女っこを敵として追加（速い！）
+            enemies.push({
+                type: 11, // 魔女っこ
+                x: witchGirlPosition.x,
+                y: witchGirlPosition.y,
+                baseSpeed: 0.025, // かなり速い！
+                speed: 0.025,
+                isWitchGirl: true,
+                lastMagicTime: 0
+            });
+            console.log(`🧙‍♀️😈 魔女っこが攻撃開始！「ふふふ...逃がさないわよ！」`);
+            if (window.soundManager) {
+                window.soundManager.play('witchLaugh'); // 笑い声
+            }
+        }
+
         // 最も近い敵との距離を追跡
         let closestDistance = Infinity;
         let closestCatDistance = Infinity;
@@ -396,6 +417,26 @@ async function initBitECSGame() {
                 }
             }
 
+            // 魔女っこの魔法攻撃（距離3マス以内、3秒ごと）
+            if (enemy.isWitchGirl && dist < 3.0) {
+                if (currentTime - enemy.lastMagicTime > 3000) {
+                    enemy.lastMagicTime = currentTime;
+                    // 魔法弾を発射
+                    const angle = Math.atan2(dy, dx);
+                    gameState.magicAttacks.push({
+                        x: enemy.x,
+                        y: enemy.y,
+                        vx: Math.cos(angle) * 0.05, // 魔法弾の速度
+                        vy: Math.sin(angle) * 0.05,
+                        createdAt: currentTime
+                    });
+                    if (window.soundManager) {
+                        window.soundManager.play('magic'); // 魔法音
+                    }
+                    console.log(`🧙‍♀️✨ 魔女っこが魔法攻撃！`);
+                }
+            }
+
             // 衝突判定（プレイヤーとの距離）
             if (dist < 0.5) {
                 // 無敵時間チェック
@@ -411,11 +452,53 @@ async function initBitECSGame() {
             }
         }
 
+        // 魔法弾の更新
+        updateMagicAttacks(playerX, playerY, currentTime);
+
         // 敵接近サウンドの更新（最も近い敵との距離で判定）
         if (window.soundManager) {
             window.soundManager.updateEnemyProximitySound(closestDistance);
             // 猫が近くにいたら「にゃーん」
             window.soundManager.updateCatProximitySound(closestCatDistance);
+        }
+    }
+
+    // 魔法攻撃の更新
+    function updateMagicAttacks(playerX, playerY, currentTime) {
+        // 古い魔法弾を削除（5秒経過）
+        gameState.magicAttacks = gameState.magicAttacks.filter(magic => {
+            const age = currentTime - magic.createdAt;
+            return age < 5000;
+        });
+
+        // 各魔法弾を更新
+        for (let i = gameState.magicAttacks.length - 1; i >= 0; i--) {
+            const magic = gameState.magicAttacks[i];
+
+            // 位置を更新
+            magic.x += magic.vx;
+            magic.y += magic.vy;
+
+            // プレイヤーとの衝突判定
+            const dx = magic.x - playerX;
+            const dy = magic.y - playerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < 0.5) {
+                // 魔法弾が当たった！
+                gameState.magicAttacks.splice(i, 1);
+
+                // ダメージ判定（無敵時間チェック）
+                if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
+                    gameState.playerHP--;
+                    gameState.lastDamageTime = currentTime;
+
+                    if (window.soundManager) {
+                        window.soundManager.play('ghost'); // ダメージ音
+                    }
+                    console.log(`✨💔 魔法弾が命中！ダメージ！ HP: ${gameState.playerHP}/${gameState.maxHP}`);
+                }
+            }
         }
     }
 
@@ -447,6 +530,62 @@ async function initBitECSGame() {
         gameState.explosions.push({
             particles: particles,
             createdAt: currentTime
+        });
+    }
+
+    // 魔法弾エフェクトを描画（3D空間）
+    function renderMagicAttacks(ctx, canvas, playerX, playerY, playerAngle) {
+        gameState.magicAttacks.forEach(magic => {
+            // プレイヤーからの相対位置
+            const dx = magic.x - playerX;
+            const dy = magic.y - playerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // 視野内チェック
+            if (distance < 0.1 || distance > 15) return;
+
+            const angle = Math.atan2(dy, dx) - playerAngle;
+            let normalizedAngle = angle;
+            while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+            while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+
+            const fov = Math.PI / 3;
+            if (normalizedAngle < -fov || normalizedAngle > fov) return;
+
+            // 画面上の位置を計算
+            const screenX = (normalizedAngle / fov) * (canvas.width / 2) + canvas.width / 2;
+            const screenY = canvas.height / 2;
+
+            // 距離に応じたサイズ
+            const screenSize = (20 * canvas.height) / distance;
+
+            // 紫色の輝く魔法弾
+            ctx.save();
+
+            // 外側の輝き
+            const gradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, screenSize * 1.5);
+            gradient.addColorStop(0, 'rgba(138, 43, 226, 0.8)'); // 紫
+            gradient.addColorStop(0.5, 'rgba(186, 85, 211, 0.5)'); // 明るい紫
+            gradient.addColorStop(1, 'rgba(138, 43, 226, 0)');
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, screenSize * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 内側のコア
+            ctx.fillStyle = '#ff69b4'; // ピンク
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, screenSize * 0.6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // キラキラエフェクト
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(screenX - screenSize * 0.2, screenY - screenSize * 0.2, screenSize * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
         });
     }
 
@@ -831,6 +970,9 @@ async function initBitECSGame() {
 
         // 爆発エフェクトを描画
         updateAndRenderExplosions(ctx, canvas, playerX, playerY, playerAngle, performance.now());
+
+        // 魔法弾エフェクトを描画
+        renderMagicAttacks(ctx, canvas, playerX, playerY, playerAngle);
 
         // ミニマップ（逃走フェーズでは敵も表示）
         renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition, dynamicEnemies, gameState.phase);
