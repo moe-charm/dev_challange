@@ -62,7 +62,7 @@ async function initBitECSGame() {
         lastDamageTime: 0,               // 最後にダメージを受けた時刻
         invincibleDuration: 1000,        // 無敵時間（ミリ秒）
         escapeStartTime: 0,              // 逃走開始時刻
-        escapeDuration: 30000,           // 逃走時間（30秒）
+        escapeDuration: 60000,           // 逃走時間（60秒に延長！）
         betrayalMessageUntil: 0,         // 裏切りメッセージ表示時刻
         introMessageUntil: 0,            // COLLECT直後のセリフ表示時刻
         escapeOverlayUntil: 0,           // ESCAPE冒頭のメッセージ表示終了時刻
@@ -113,13 +113,13 @@ async function initBitECSGame() {
             const type = map[y][x];
             // おばけ(2)、魔女(7)、骸骨(10)を敵として登録
             if (type === 2 || type === 7 || type === 10) {
+                const baseSpeed = type === 2 ? 0.015 : (type === 7 ? 0.015 : 0.012);
                 enemies.push({
                     type: type,
                     x: x + 0.5,
                     y: y + 0.5,
-                    // 難易度調整: ゴーストは半分の速度、他は徒歩ペース
-                    // Ghost: 0.015, Witch: 0.015, Skeleton: 0.012
-                    speed: type === 2 ? 0.015 : (type === 7 ? 0.015 : 0.012)
+                    baseSpeed: baseSpeed,  // 初期速度を保存
+                    speed: baseSpeed       // 現在の速度（段階的に上昇）
                 });
             }
         }
@@ -221,7 +221,7 @@ async function initBitECSGame() {
                     if (window.soundManager) {
                         window.soundManager.play('door'); // 緊迫感のある音
                     }
-                    console.log('🏃 逃走開始！30秒間敵から逃げ切ろう！');
+                    console.log('🏃 逃走開始！60秒間敵から逃げ切ろう！');
                 }
                 break;
 
@@ -237,7 +237,9 @@ async function initBitECSGame() {
                     gameState.victoryStartTime = currentTime;
                     gameState.finalTimeSec = ((currentTime - gameState.startTime) / 1000).toFixed(2);
                     if (window.soundManager) {
-                        window.soundManager.play('jump');
+                        window.soundManager.play('victory'); // ファンファーレ音に変更！
+                        window.soundManager.stopHeartbeat(); // 接近サウンドを停止
+                        window.soundManager.stopWarning();
                     }
                     console.log('🎉 勝利！生け贄の儀式から逃げ切った！');
                 }
@@ -245,6 +247,10 @@ async function initBitECSGame() {
                 // HP0でゲームオーバー
                 if (gameState.playerHP <= 0) {
                     gameState.phase = PHASE.GAMEOVER;
+                    if (window.soundManager) {
+                        window.soundManager.stopHeartbeat(); // 接近サウンドを停止
+                        window.soundManager.stopWarning();
+                    }
                     console.log('💀 ゲームオーバー...敵に捕まってしまった');
                 }
                 break;
@@ -253,13 +259,36 @@ async function initBitECSGame() {
 
     // 敵更新関数（逃走フェーズのみ）
     function updateEnemies(playerX, playerY, currentTime) {
+        // 経過時間に応じて難易度を段階的に上昇
+        const escapeElapsed = currentTime - gameState.escapeStartTime;
+        let speedMultiplier = 1.0;
+
+        if (escapeElapsed >= 45000) {
+            // 45秒以降: 2倍速！
+            speedMultiplier = 2.0;
+        } else if (escapeElapsed >= 30000) {
+            // 30秒以降: 1.5倍速
+            speedMultiplier = 1.5;
+        }
+        // 0-30秒: 通常速度（1.0倍）
+
+        // 最も近い敵との距離を追跡
+        let closestDistance = Infinity;
+
         for (let i = 0; i < enemies.length; i++) {
             const enemy = enemies[i];
+            // 速度を段階的に更新
+            enemy.speed = enemy.baseSpeed * speedMultiplier;
 
             // プレイヤーへの方向ベクトル
             const dx = playerX - enemy.x;
             const dy = playerY - enemy.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // 最も近い敵との距離を更新
+            if (dist < closestDistance) {
+                closestDistance = dist;
+            }
 
             if (dist > 0.1) {
                 // 正規化して移動
@@ -321,6 +350,11 @@ async function initBitECSGame() {
                     console.log(`💔 ダメージ！ HP: ${gameState.playerHP}/${gameState.maxHP}`);
                 }
             }
+        }
+
+        // 敵接近サウンドの更新（最も近い敵との距離で判定）
+        if (window.soundManager) {
+            window.soundManager.updateEnemyProximitySound(closestDistance);
         }
     }
 
@@ -514,7 +548,7 @@ async function initBitECSGame() {
                 case PHASE.ESCAPE:
                     // 逃走フェーズの導入メッセージを3.5秒だけ表示
                     if (currentTime < gameState.escapeOverlayUntil) {
-                        messageElement.textContent = '🏃 逃げろ！敵から30秒逃げ切れ！';
+                        messageElement.textContent = '🏃 逃げろ！敵から60秒逃げ切れ！';
                         messageElement.style.display = 'block';
                         messageElement.style.fontSize = '20px';
                         messageElement.style.backgroundColor = 'rgba(255, 0, 0, 0.85)';
@@ -537,8 +571,15 @@ async function initBitECSGame() {
                         : ((currentTime - gameState.startTime) / 1000).toFixed(2);
                     messageElement.innerHTML = `🎉 勝利！<br>生け贄の儀式から逃げ切った！<br>タイム: ${finalTime}秒`;
                     messageElement.style.display = 'block';
-                    messageElement.style.fontSize = '28px';
-                    messageElement.style.backgroundColor = 'rgba(0, 100, 0, 0.95)';
+                    messageElement.style.fontSize = '32px';
+                    // 虹色グラデーションで派手に！
+                    messageElement.style.background = 'linear-gradient(90deg, #ff0080, #ff8c00, #ffeb3b, #69f0ae, #64b5f6, #9c27b0)';
+                    messageElement.style.backgroundSize = '200% 100%';
+                    messageElement.style.animation = 'rainbow 2s linear infinite';
+                    messageElement.style.color = '#ffffff';
+                    messageElement.style.textShadow = '0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.5)';
+                    messageElement.style.border = '4px solid #ffeb3b';
+                    messageElement.style.boxShadow = '0 0 40px rgba(255, 235, 59, 0.8)';
                     if (hintElement) hintElement.style.display = 'none';
                     break;
             }
@@ -624,19 +665,19 @@ async function initBitECSGame() {
         ctx.restore();
     }
 
-    // 勝利パーティクル（花火/紙吹雪風）
+    // 勝利パーティクル（花火/紙吹雪風）- 派手に増量！
     let victoryParticles = null;
     function ensureVictoryParticles(canvas) {
         if (victoryParticles) return;
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
-        const count = 120;
-        const colors = ['#ffeb3b', '#ff9800', '#ff69b4', '#69f0ae', '#64b5f6'];
+        const count = 200; // 120→200に増加！
+        const colors = ['#ffeb3b', '#ff9800', '#ff69b4', '#69f0ae', '#64b5f6', '#ff0080', '#00ff80', '#ffff00'];
         victoryParticles = [];
         for (let i = 0; i < count; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const speed = 120 + Math.random() * 260; // px over full duration
-            const size = 2 + Math.random() * 3;
+            const speed = 120 + Math.random() * 300; // スピード範囲拡大
+            const size = 2 + Math.random() * 5; // サイズも大きく
             const color = colors[Math.floor(Math.random() * colors.length)];
             victoryParticles.push({ angle, speed, size, color });
         }

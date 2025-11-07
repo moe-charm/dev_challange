@@ -10,6 +10,8 @@ class SoundManager {
         this.footstepDelay = 0.3; // 歩く音の間隔
         this.lastFootstep = 0;
         this.ambientSound = null;
+        this.heartbeatSound = null; // 心臓の鼓動音（継続音）
+        this.warningSound = null;   // 警告音（継続音）
         this.initAudio();
     }
     
@@ -55,6 +57,9 @@ class SoundManager {
         
         // 急な音（ジャンプ音など）
         this.sounds.jump = () => this.createJumpSound();
+
+        // 勝利ファンファーレ
+        this.sounds.victory = () => this.createVictorySound();
     }
     
     // 足音の生成
@@ -226,28 +231,238 @@ class SoundManager {
     // ジャンプ音
     createJumpSound() {
         if (!this.audioContext) return;
-        
+
         const now = this.audioContext.currentTime;
         const duration = 0.3;
-        
+
         const oscillator = this.audioContext.createOscillator();
         const gainNode = this.audioContext.createGain();
-        
+
         oscillator.connect(gainNode);
         gainNode.connect(this.audioContext.destination);
-        
+
         oscillator.frequency.setValueAtTime(200, now);
         oscillator.frequency.exponentialRampToValueAtTime(400, now + 0.1);
         oscillator.frequency.exponentialRampToValueAtTime(300, now + duration);
         oscillator.type = 'square';
-        
+
         gainNode.gain.setValueAtTime(0.2, now);
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
-        
+
         oscillator.start(now);
         oscillator.stop(now + duration);
     }
-    
+
+    // 勝利ファンファーレ（派手な音楽）
+    createVictorySound() {
+        if (!this.audioContext) return;
+
+        const now = this.audioContext.currentTime;
+
+        // メロディーの音符（ド-ミ-ソ-ド）
+        const notes = [
+            { freq: 523.25, start: 0, duration: 0.2 },      // ド (C5)
+            { freq: 659.25, start: 0.2, duration: 0.2 },    // ミ (E5)
+            { freq: 783.99, start: 0.4, duration: 0.2 },    // ソ (G5)
+            { freq: 1046.50, start: 0.6, duration: 0.4 }    // ド (C6) - 長め
+        ];
+
+        notes.forEach(note => {
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+
+            oscillator.frequency.value = note.freq;
+            oscillator.type = 'triangle';
+
+            gainNode.gain.setValueAtTime(0.3, now + note.start);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + note.start + note.duration);
+
+            oscillator.start(now + note.start);
+            oscillator.stop(now + note.start + note.duration);
+        });
+
+        // ドラムロール風の効果音
+        const bufferSize = this.audioContext.sampleRate * 0.8;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const output = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+
+        const noiseGain = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.audioContext.destination);
+
+        filter.type = 'highpass';
+        filter.frequency.value = 2000;
+
+        noiseGain.gain.setValueAtTime(0.1, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+
+        noise.start(now);
+    }
+
+    // 心臓の鼓動音（継続的にループ）
+    createHeartbeatSound(distance) {
+        if (!this.audioContext) return;
+
+        // 距離に応じた音量（近いほど大きく）
+        const volume = Math.max(0, Math.min(0.3, (3 - distance) / 3 * 0.3));
+
+        if (this.heartbeatSound) {
+            // 既に再生中の場合は音量だけ調整
+            this.heartbeatSound.gainNode.gain.value = volume;
+            return;
+        }
+
+        const now = this.audioContext.currentTime;
+
+        // 低周波の鼓動
+        const oscillator1 = this.audioContext.createOscillator();
+        const oscillator2 = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        oscillator1.connect(filter);
+        oscillator2.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // 心臓の鼓動のような低い音
+        oscillator1.frequency.value = 60;
+        oscillator1.type = 'sine';
+
+        oscillator2.frequency.value = 40;
+        oscillator2.type = 'sine';
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 200;
+
+        gainNode.gain.value = volume;
+
+        // ゆっくりとした鼓動リズム（LFOで音量変化）
+        const lfo = this.audioContext.createOscillator();
+        const lfoGain = this.audioContext.createGain();
+
+        lfo.frequency.value = 1.2; // 1.2Hz（約1秒間隔）
+        lfo.connect(lfoGain);
+        lfoGain.connect(gainNode.gain);
+        lfoGain.gain.value = volume * 0.5;
+
+        oscillator1.start(now);
+        oscillator2.start(now);
+        lfo.start(now);
+
+        this.heartbeatSound = {
+            oscillators: [oscillator1, oscillator2, lfo],
+            gainNode: gainNode
+        };
+    }
+
+    // 警告音（非常に近い時）
+    createWarningSound(distance) {
+        if (!this.audioContext) return;
+
+        const volume = Math.max(0, Math.min(0.2, (1.5 - distance) / 1.5 * 0.2));
+
+        if (this.warningSound) {
+            this.warningSound.gainNode.gain.value = volume;
+            return;
+        }
+
+        const now = this.audioContext.currentTime;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // 高音の警告音
+        oscillator.frequency.value = 800;
+        oscillator.type = 'triangle';
+
+        gainNode.gain.value = volume;
+
+        // 音量をパルス状に変化
+        const lfo = this.audioContext.createOscillator();
+        const lfoGain = this.audioContext.createGain();
+
+        lfo.frequency.value = 4; // 4Hz（速いパルス）
+        lfo.connect(lfoGain);
+        lfoGain.connect(gainNode.gain);
+        lfoGain.gain.value = volume * 0.5;
+
+        oscillator.start(now);
+        lfo.start(now);
+
+        this.warningSound = {
+            oscillators: [oscillator, lfo],
+            gainNode: gainNode
+        };
+    }
+
+    // 心臓の鼓動音を停止
+    stopHeartbeat() {
+        if (this.heartbeatSound) {
+            this.heartbeatSound.oscillators.forEach(osc => {
+                try {
+                    osc.stop();
+                } catch (e) {
+                    // 既に停止
+                }
+            });
+            this.heartbeatSound = null;
+        }
+    }
+
+    // 警告音を停止
+    stopWarning() {
+        if (this.warningSound) {
+            this.warningSound.oscillators.forEach(osc => {
+                try {
+                    osc.stop();
+                } catch (e) {
+                    // 既に停止
+                }
+            });
+            this.warningSound = null;
+        }
+    }
+
+    // 敵接近サウンドの更新（距離に応じて）
+    updateEnemyProximitySound(closestDistance) {
+        if (!this.enabled) {
+            this.stopHeartbeat();
+            this.stopWarning();
+            return;
+        }
+
+        if (closestDistance < 1.5) {
+            // 非常に近い: 警告音
+            this.createWarningSound(closestDistance);
+            this.createHeartbeatSound(closestDistance);
+        } else if (closestDistance < 3.0) {
+            // 近い: 心臓の鼓動のみ
+            this.stopWarning();
+            this.createHeartbeatSound(closestDistance);
+        } else {
+            // 遠い: 全て停止
+            this.stopHeartbeat();
+            this.stopWarning();
+        }
+    }
+
     // 音を再生
     play(soundName) {
         if (!this.enabled) {
