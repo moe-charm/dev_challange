@@ -3,163 +3,277 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ハロウィン街探索 | Halloween Town Explorer</title>
-    <meta name="description" content="JavaScriptとWeb Audio APIを使用して作成した、3Dレイキャスト技術のハロウィン街探索デモ。DEV.to Frontend Challenge: Halloween Editionへの提出作品。">
+    <title>DEV Challenge Portfolio | moe-charm</title>
+    <meta name="description" content="DEV.to Frontend Challengeへの提出作品ポートフォリオ">
     <meta name="theme-color" content="#0a0e27">
-    <meta property="og:title" content="Halloween Town Explorer | Perfect Landing: Halloween">
-    <meta property="og:description" content="星空の下でハロウィンの街を探検。かぼちゃを集め、襲いくる影から逃げ切れ！">
-    <meta property="og:type" content="website">
-    <meta property="og:image" content="">
-    <link rel="stylesheet" href="style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 40px 20px;
+            text-align: center;
+            border-bottom: 2px solid rgba(255, 156, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 3rem;
+            background: linear-gradient(45deg, #ff6d00, #ff9c00, #ffcc00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            animation: glow 2s infinite alternate;
+        }
+
+        @keyframes glow {
+            from { filter: drop-shadow(0 0 10px rgba(255, 156, 0, 0.5)); }
+            to { filter: drop-shadow(0 0 20px rgba(255, 156, 0, 0.8)); }
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            color: #ff9c00;
+            margin-bottom: 20px;
+        }
+
+        .links {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .links a {
+            color: #64b5f6;
+            text-decoration: none;
+            padding: 8px 16px;
+            border: 1px solid #64b5f6;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .links a:hover {
+            background: #64b5f6;
+            color: #0a0e27;
+            transform: translateY(-2px);
+        }
+
+        main {
+            flex: 1;
+            padding: 40px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .challenges {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .challenge-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(255, 156, 0, 0.3);
+            border-radius: 15px;
+            padding: 30px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .challenge-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, rgba(255, 109, 0, 0.1), rgba(255, 204, 0, 0.1));
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .challenge-card:hover::before {
+            opacity: 1;
+        }
+
+        .challenge-card:hover {
+            transform: translateY(-10px);
+            border-color: #ff9c00;
+            box-shadow: 0 10px 30px rgba(255, 156, 0, 0.3);
+        }
+
+        .challenge-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .challenge-title {
+            font-size: 1.8rem;
+            color: #ff9c00;
+            margin-bottom: 10px;
+        }
+
+        .challenge-desc {
+            color: #ccc;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .challenge-tech {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tech-tag {
+            background: rgba(255, 156, 0, 0.2);
+            color: #ff9c00;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            border: 1px solid rgba(255, 156, 0, 0.3);
+        }
+
+        .challenge-link {
+            display: inline-block;
+            background: linear-gradient(45deg, #ff6d00, #ff9c00);
+            color: #fff;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            transition: all 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .challenge-link:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(255, 156, 0, 0.5);
+        }
+
+        .coming-soon {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .coming-soon .challenge-link {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        footer {
+            padding: 30px 20px;
+            text-align: center;
+            border-top: 2px solid rgba(255, 156, 0, 0.3);
+            color: #999;
+        }
+
+        footer a {
+            color: #ff9c00;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .subtitle {
+                font-size: 1rem;
+            }
+
+            .challenges {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header-content">
-            <h1 class="header-title">🎃 Halloween Town Explorer 🦇</h1>
-            <p class="header-subtitle">A 3D Raycasting Halloween Experience</p>
-            <div class="header-cta">
-                <a class="btn btn-primary" href="#viewport" aria-label="今すぐプレイ">今すぐ遊ぶ</a>
-                <a class="btn btn-ghost" href="#howto" aria-label="遊び方へ移動">遊び方</a>
-            </div>
+    <header>
+        <h1>🎨 DEV Challenge Portfolio</h1>
+        <p class="subtitle">DEV.to Frontend Challenges - 提出作品集</p>
+        <div class="links">
+            <a href="https://github.com/moe-charm/dev_challange" target="_blank" rel="noopener">📂 GitHub</a>
+            <a href="https://dev.to/moe-charm" target="_blank" rel="noopener">📝 DEV.to</a>
         </div>
     </header>
-    
-    <main class="main-content">
-        <div class="game-section">
-            <div class="game-container">
-                <div class="game-title">
-                    <h2>🎃 ハロウィンかぼちゃ収集ゲーム 🦇</h2>
-                    <p>矢印キーで移動して、街中のかぼちゃを全部集めよう！</p>
-                </div>
-                
-                <div class="viewport" id="viewport">
-                    <canvas id="gameCanvas"></canvas>
-                    <div class="game-overlay">
-                        <button class="sound-toggle" id="soundToggle">🔊 音を有効化</button>
-                        <div class="game-ui">
-                            <div class="ui-panel">
-                                <div class="ui-item">
-                                    <span class="ui-label">🎃 かぼちゃ:</span>
-                                    <span class="ui-value" id="collected-count">0 / 0</span>
-                                </div>
-                                <div class="ui-item">
-                                    <span class="ui-label">⏱️ タイム:</span>
-                                    <span class="ui-value" id="timer">0.0秒</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="game-message" id="game-message" style="display: none;"></div>
-                        <div class="talk-prompt" id="talk-prompt" style="display: none;"></div>
-                    </div>
-                </div>
-                
-                <div class="instructions">
-                    <div class="controls">
-                        <p>↑↓←→ 移動 | S: 音のオン/オフ | A: 環境音</p>
-                        <p>画面クリックで音を有効化</p>
-                    </div>
-                    <div class="minimap-container">
-                        <p>ミニマップ:</p>
-                        <div class="minimap" id="minimap"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="info-section">
-            <div class="info-card">
-                <h3>🎮 ゲームの目的</h3>
-                <p>
-                    ハロウィンの街に散らばったかぼちゃを全て集めよう！
-                    かぼちゃに近づくと自動的に収集されます。
-                    できるだけ早く全部集めて、ベストタイムを目指そう！
+
+    <main>
+        <div class="challenges">
+            <!-- Halloween Challenge -->
+            <div class="challenge-card">
+                <span class="challenge-icon">🎃</span>
+                <h2 class="challenge-title">Halloween Town Explorer</h2>
+                <p class="challenge-desc">
+                    3Dレイキャスティング技術を使ったハロウィンテーマの探索＆逃走ゲーム。
+                    かぼちゃを集めて、魔女の裏切りから逃げ切ろう！
                 </p>
-                <p style="margin-top: 10px;">
-                    5つのエリア（幽霊屋敷、魔女の森、街、墓地、かぼちゃ畑）を探索して、
-                    隠れたかぼちゃを見つけ出そう。壁の色がエリアごとに変わるよ！
+                <div class="challenge-tech">
+                    <span class="tech-tag">JavaScript ES6+</span>
+                    <span class="tech-tag">bitECS</span>
+                    <span class="tech-tag">Canvas 2D</span>
+                    <span class="tech-tag">Web Audio API</span>
+                    <span class="tech-tag">Raycasting</span>
+                </div>
+                <a href="./halloween/" class="challenge-link">🎮 今すぐプレイ</a>
+            </div>
+
+            <!-- Coming Soon - Christmas -->
+            <div class="challenge-card coming-soon">
+                <span class="challenge-icon">🎄</span>
+                <h2 class="challenge-title">Christmas Special</h2>
+                <p class="challenge-desc">
+                    クリスマスチャレンジ - Coming Soon!
+                    新しいフロントエンドチャレンジに挑戦中...
                 </p>
+                <div class="challenge-tech">
+                    <span class="tech-tag">Coming Soon</span>
+                </div>
+                <span class="challenge-link">🔒 Coming Soon</span>
             </div>
-            
-            <div class="info-card">
-                <h3>🛠 技術スタック</h3>
-                <ul>
-                    <li>純粋なJavaScript (ES6+)</li>
-                    <li>HTML5 Canvas</li>
-                    <li>Web Audio API</li>
-                    <li>3Dレイキャスト技術</li>
-                    <li>レスポンシブCSS</li>
-                </ul>
-            </div>
-            
-            <div class="info-card">
-                <h3>🎮 操作方法</h3>
-                <ul>
-                    <li>↑↓←→ キーで移動</li>
-                    <li>Sキーで音のオン/オフ</li>
-                    <li>Aキーで環境音の切り替え</li>
-                    <li>画面クリックで音を有効化</li>
-                    <li>右下のミニマップで現在位置を確認</li>
-                </ul>
-            </div>
-            
-            <div class="info-card">
-                <h3>🎃 ハロウィン要素</h3>
-                <ul>
-                    <li>紫色のブロック: おばけ</li>
-                    <li>橙色のブロック: かぼちゃ</li>
-                    <li>黄色のブロック: ランタン</li>
-                    <li>茶色のブロック: 看板</li>
-                    <li>灰色のブロック: 墓石</li>
-                    <li>濃い紫色のブロック: 魔女（箒を持って浮遊）</li>
-                </ul>
+
+            <!-- Coming Soon - New Year -->
+            <div class="challenge-card coming-soon">
+                <span class="challenge-icon">🎆</span>
+                <h2 class="challenge-title">New Year Celebration</h2>
+                <p class="challenge-desc">
+                    新年チャレンジ - Coming Soon!
+                    次回のDEVチャレンジをお楽しみに...
+                </p>
+                <div class="challenge-tech">
+                    <span class="tech-tag">Coming Soon</span>
+                </div>
+                <span class="challenge-link">🔒 Coming Soon</span>
             </div>
         </div>
     </main>
-    
-    <footer class="footer">
-        <p>
-            DEV.to Frontend Challenge: Halloween Editionへの提出作品 | 
-            <a href="https://github.com/yourusername/halloween-town-explorer" target="_blank" rel="noopener">GitHub</a>
-        </p>
+
+    <footer>
+        <p>Built with ❤️ by <a href="https://github.com/moe-charm" target="_blank" rel="noopener">moe-charm</a></p>
+        <p>DEV.to Frontend Challenge Submissions</p>
     </footer>
-
-    <script type="module">
-        // bitECSをESモジュールとして読み込み
-        import * as BITECS from 'https://cdn.skypack.dev/bitecs@0.3.25';
-        window.BITECS = BITECS;
-        console.log('✅ bitECS loaded as ESM:', BITECS);
-    </script>
-    <script src="sounds.js"></script>
-    <script type="module" src="ecs-bitecs.js"></script>
-    <script type="module" src="game-bitecs.js"></script>
-    <script type="module">
-        // ページ読み込み後に音の設定
-        window.addEventListener('load', () => {
-            // 旧ゲームは無効化（bitECS版を使用）
-            // if (window.Game && window.Game.init) {
-            //     const game = window.Game.init();
-            // }
-
-            // 音の有効化ボタンの処理
-            const soundToggle = document.getElementById('soundToggle');
-            if (soundToggle) {
-                soundToggle.addEventListener('click', () => {
-                    if (window.soundManager) {
-                        window.soundManager.resumeAudio();
-                        const enabled = window.soundManager.toggleSound();
-                        soundToggle.textContent = enabled ? '🔊 音オン' : '🔇 音オフ';
-                    }
-                });
-            }
-
-            // 音効果マネージャーをグローバルに公開
-            // ユーザーが最初のクリックやキー操作をしたら音が有効になるようにする
-            document.addEventListener('click', () => {
-                if (window.soundManager) {
-                    window.soundManager.resumeAudio();
-                }
-            }, { once: true });
-        });
-    </script>
 </body>
 </html>

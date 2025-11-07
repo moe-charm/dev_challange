@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハロウィン街探索 | Halloween Town Explorer</title>
+    <meta name="description" content="JavaScriptとWeb Audio APIを使用して作成した、3Dレイキャスト技術のハロウィン街探索デモ。DEV.to Frontend Challenge: Halloween Editionへの提出作品。">
+    <meta name="theme-color" content="#0a0e27">
+    <meta property="og:title" content="Halloween Town Explorer | Perfect Landing: Halloween">
+    <meta property="og:description" content="星空の下でハロウィンの街を探検。かぼちゃを集め、襲いくる影から逃げ切れ！">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="header-title">🎃 Halloween Town Explorer 🦇</h1>
+            <p class="header-subtitle">A 3D Raycasting Halloween Experience</p>
+            <div class="header-cta">
+                <a class="btn btn-primary" href="#viewport" aria-label="今すぐプレイ">今すぐ遊ぶ</a>
+                <a class="btn btn-ghost" href="#howto" aria-label="遊び方へ移動">遊び方</a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="main-content">
+        <div class="game-section">
+            <div class="game-container">
+                <div class="game-title">
+                    <h2>🎃 ハロウィンかぼちゃ収集ゲーム 🦇</h2>
+                    <p>矢印キーで移動して、街中のかぼちゃを全部集めよう！</p>
+                </div>
+                
+                <div class="viewport" id="viewport">
+                    <canvas id="gameCanvas"></canvas>
+                    <div class="game-overlay">
+                        <button class="sound-toggle" id="soundToggle">🔊 音を有効化</button>
+                        <div class="game-ui">
+                            <div class="ui-panel">
+                                <div class="ui-item">
+                                    <span class="ui-label">🎃 かぼちゃ:</span>
+                                    <span class="ui-value" id="collected-count">0 / 0</span>
+                                </div>
+                                <div class="ui-item">
+                                    <span class="ui-label">⏱️ タイム:</span>
+                                    <span class="ui-value" id="timer">0.0秒</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="game-message" id="game-message" style="display: none;"></div>
+                        <div class="talk-prompt" id="talk-prompt" style="display: none;"></div>
+                    </div>
+                </div>
+                
+                <div class="instructions">
+                    <div class="controls">
+                        <p>↑↓←→ 移動 | S: 音のオン/オフ | A: 環境音</p>
+                        <p>画面クリックで音を有効化</p>
+                    </div>
+                    <div class="minimap-container">
+                        <p>ミニマップ:</p>
+                        <div class="minimap" id="minimap"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <div class="info-card">
+                <h3>🎮 ゲームの目的</h3>
+                <p>
+                    ハロウィンの街に散らばったかぼちゃを全て集めよう！
+                    かぼちゃに近づくと自動的に収集されます。
+                    できるだけ早く全部集めて、ベストタイムを目指そう！
+                </p>
+                <p style="margin-top: 10px;">
+                    5つのエリア（幽霊屋敷、魔女の森、街、墓地、かぼちゃ畑）を探索して、
+                    隠れたかぼちゃを見つけ出そう。壁の色がエリアごとに変わるよ！
+                </p>
+            </div>
+            
+            <div class="info-card">
+                <h3>🛠 技術スタック</h3>
+                <ul>
+                    <li>純粋なJavaScript (ES6+)</li>
+                    <li>HTML5 Canvas</li>
+                    <li>Web Audio API</li>
+                    <li>3Dレイキャスト技術</li>
+                    <li>レスポンシブCSS</li>
+                </ul>
+            </div>
+            
+            <div class="info-card">
+                <h3>🎮 操作方法</h3>
+                <ul>
+                    <li>↑↓←→ キーで移動</li>
+                    <li>Sキーで音のオン/オフ</li>
+                    <li>Aキーで環境音の切り替え</li>
+                    <li>画面クリックで音を有効化</li>
+                    <li>右下のミニマップで現在位置を確認</li>
+                </ul>
+            </div>
+            
+            <div class="info-card">
+                <h3>🎃 ハロウィン要素</h3>
+                <ul>
+                    <li>紫色のブロック: おばけ</li>
+                    <li>橙色のブロック: かぼちゃ</li>
+                    <li>黄色のブロック: ランタン</li>
+                    <li>茶色のブロック: 看板</li>
+                    <li>灰色のブロック: 墓石</li>
+                    <li>濃い紫色のブロック: 魔女（箒を持って浮遊）</li>
+                </ul>
+            </div>
+        </div>
+    </main>
+    
+    <footer class="footer">
+        <p>
+            DEV.to Frontend Challenge: Halloween Editionへの提出作品 | 
+            <a href="https://github.com/yourusername/halloween-town-explorer" target="_blank" rel="noopener">GitHub</a>
+        </p>
+    </footer>
+
+    <script type="module">
+        // bitECSをESモジュールとして読み込み
+        import * as BITECS from 'https://cdn.skypack.dev/bitecs@0.3.25';
+        window.BITECS = BITECS;
+        console.log('✅ bitECS loaded as ESM:', BITECS);
+    </script>
+    <script src="sounds.js"></script>
+    <script type="module" src="ecs-bitecs.js"></script>
+    <script type="module" src="game-bitecs.js"></script>
+    <script type="module">
+        // ページ読み込み後に音の設定
+        window.addEventListener('load', () => {
+            // 旧ゲームは無効化（bitECS版を使用）
+            // if (window.Game && window.Game.init) {
+            //     const game = window.Game.init();
+            // }
+
+            // 音の有効化ボタンの処理
+            const soundToggle = document.getElementById('soundToggle');
+            if (soundToggle) {
+                soundToggle.addEventListener('click', () => {
+                    if (window.soundManager) {
+                        window.soundManager.resumeAudio();
+                        const enabled = window.soundManager.toggleSound();
+                        soundToggle.textContent = enabled ? '🔊 音オン' : '🔇 音オフ';
+                    }
+                });
+            }
+
+            // 音効果マネージャーをグローバルに公開
+            // ユーザーが最初のクリックやキー操作をしたら音が有効になるようにする
+            document.addEventListener('click', () => {
+                if (window.soundManager) {
+                    window.soundManager.resumeAudio();
+                }
+            }, { once: true });
+        });
+    </script>
+</body>
+</html>
