@@ -18,6 +18,12 @@ async function initBitECSGame() {
     }
 
     console.log('✅ window.BitECS found in game-bitecs.js');
+    // 難易度ループ（周回）設定を読み込み
+    const storedLoop = parseInt(localStorage.getItem('loopCount') || '0', 10);
+    const storedMul = parseFloat(localStorage.getItem('diffMul') || '1');
+    const loopCount = isNaN(storedLoop) ? 0 : storedLoop;
+    const diffMul = isNaN(storedMul) ? 1 : storedMul;
+    console.log(`🔁 Loop: ${loopCount}, DiffMul: x${diffMul.toFixed(2)}`);
     const { world, Position, Rotation, Player, createPlayerEntity, playerQuery } = window.BitECS;
 
     // キャンバスを取得
@@ -72,12 +78,19 @@ async function initBitECSGame() {
         introOverlayUntil: 0,            // INTROの中央メッセージ表示終了時刻
         canTalk: false,                  // 魔女っこと話せるか
         showTalkPrompt: false,           // プロンプト表示フラグ
+        // スコア関連
+        damageCount: 0,                  // 被ダメ回数
+        riskExposureMs: 0,               // 接近状態の累積時間(ms)
+        lastRiskSampleTime: 0,           // リスク計測の前回時刻
+        score: 0,                        // 最終スコア
+        rank: '',                        // 最終ランク
         catsBetrayed: false,             // 猫が裏切ったか（30秒切ったらtrue）
         collectedLanterns: new Set(),    // 収集済みランタン
         explodedBats: new Set(),         // 爆発済みコウモリ
         explosions: [],                  // アクティブな爆発エフェクト
         witchGirlAttacking: false,       // 魔女っこが攻撃してきているか
-        magicAttacks: []                 // アクティブな魔法攻撃
+        magicAttacks: [],                // アクティブな魔法攻撃
+        sunriseStarted: false            // 朝焼け開始フラグ（サウンド等の一度きり処理）
     };
 
     // INTROの中央メッセージは数秒後に小さなヒントに切り替え
@@ -120,7 +133,7 @@ async function initBitECSGame() {
             const type = map[y][x];
             // おばけ(2)、魔女(7)、骸骨(10)を敵として登録
             if (type === 2 || type === 7 || type === 10) {
-                const baseSpeed = type === 2 ? 0.015 : (type === 7 ? 0.015 : 0.012);
+                const baseSpeed = (type === 2 ? 0.015 : (type === 7 ? 0.015 : 0.012)) * diffMul;
                 enemies.push({
                     type: type,
                     x: x + 0.5,
@@ -135,8 +148,8 @@ async function initBitECSGame() {
                     type: type,
                     x: x + 0.5,
                     y: y + 0.5,
-                    baseSpeed: 0.018,  // 猫は少し速い！
-                    speed: 0.018,
+                    baseSpeed: 0.018 * diffMul,  // 猫は少し速い！
+                    speed: 0.018 * diffMul,
                     isCat: true        // 猫フラグ
                 });
             }
@@ -155,6 +168,17 @@ async function initBitECSGame() {
         }
     }
     console.log(`🏮 ${lanterns.length}個のランタンを配置しました！`);
+    // 周回ごとに追加のランタンを少し増やす（最大+5）
+    const extraLanterns = [];
+    const extraCount = Math.min(5, Math.max(0, loopCount));
+    for (let i = 0; i < extraCount && emptySpaces.length > 0; i++) {
+        const idx = Math.floor(Math.random() * emptySpaces.length);
+        const pos = emptySpaces.splice(idx, 1)[0];
+        extraLanterns.push({ x: pos.x + 0.5, y: pos.y + 0.5 });
+    }
+    if (extraLanterns.length) {
+        console.log(`🏮➕ 追加ランタン: ${extraLanterns.length}個（周回: ${loopCount}）`);
+    }
 
     // コウモリの位置を収集（マップから）
     const bats = [];
@@ -189,9 +213,9 @@ async function initBitECSGame() {
                 const enabled = window.soundManager.toggleSound();
                 const soundToggle = document.getElementById('soundToggle');
                 if (soundToggle) {
-                    soundToggle.textContent = enabled ? '🔊 音オン' : '🔇 音オフ';
+                    soundToggle.dataset.active = '1';
+                    soundToggle.textContent = enabled ? (window.i18n?.t('sound_on')||'🔊 音オン') : (window.i18n?.t('sound_off')||'🔇 音オフ');
                 }
-                console.log(`🔊 音: ${enabled ? 'オン' : 'オフ'}`);
             }
         }
 
@@ -202,6 +226,13 @@ async function initBitECSGame() {
                 window.soundManager.resumeAudio();
                 window.soundManager.toggleAmbient();
                 console.log('🌙 環境音を切り替えました');
+            }
+        }
+
+        // Rキー: リスタート（勝利/ゲームオーバー時）
+        if (e.key === 'r' || e.key === 'R') {
+            if (gameState.phase === PHASE.VICTORY || gameState.phase === PHASE.GAMEOVER) {
+                location.reload();
             }
         }
     });
@@ -259,6 +290,10 @@ async function initBitECSGame() {
                     gameState.phase = PHASE.ESCAPE;
                     gameState.escapeStartTime = currentTime;
                     gameState.escapeOverlayUntil = currentTime + 3500; // 逃走メッセージは3.5秒
+                    // スコア計測の初期化
+                    gameState.lastRiskSampleTime = currentTime;
+                    gameState.riskExposureMs = 0;
+                    gameState.damageCount = 0;
                     if (window.soundManager) {
                         window.soundManager.play('door'); // 緊迫感のある音
                     }
@@ -283,6 +318,30 @@ async function initBitECSGame() {
                         window.soundManager.stopWarning();
                     }
                     console.log('🎉 勝利！生け贄の儀式から逃げ切った！');
+
+                    // スコア計算
+                    const collectTimeSec = (gameState.escapeStartTime - gameState.startTime) / 1000;
+                    const sCollect = Math.max(0, Math.round(5000 - collectTimeSec * 200));
+                    const sHP = gameState.playerHP * 1000;
+                    const sLantern = (gameState.collectedLanterns?.size || 0) * 600;
+                    const riskSec = (gameState.riskExposureMs || 0) / 1000;
+                    const sRisk = Math.round(Math.min(30, riskSec) * 20);
+                    const sClean = (gameState.damageCount === 0 ? 1000 : 0);
+                    const sPenalty = (gameState.damageCount || 0) * 900;
+                    const score = sCollect + sHP + sLantern + sRisk + sClean - sPenalty;
+                    gameState.score = Math.max(0, score);
+                    gameState.rank = (score >= 6000) ? 'S' : (score >= 4500) ? 'A' : (score >= 3000) ? 'B' : (score >= 1500) ? 'C' : 'D';
+
+                    // 次周難易度を1.1倍にして保存
+                    try {
+                        const nextLoop = (loopCount || 0) + 1;
+                        const nextMul = (diffMul || 1) * 1.1;
+                        localStorage.setItem('loopCount', String(nextLoop));
+                        localStorage.setItem('diffMul', String(nextMul));
+                        console.log(`🔁 Next Loop: ${nextLoop}, Next DiffMul: x${nextMul.toFixed(2)}`);
+                    } catch (e) {
+                        console.warn('⚠️ 難易度保存に失敗:', e);
+                    }
                 }
 
                 // HP0でゲームオーバー
@@ -442,6 +501,7 @@ async function initBitECSGame() {
                 // 無敵時間チェック
                 if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
                     gameState.playerHP--;
+                    gameState.damageCount = (gameState.damageCount||0) + 1;
                     gameState.lastDamageTime = currentTime;
 
                     if (window.soundManager) {
@@ -461,6 +521,15 @@ async function initBitECSGame() {
             // 猫が近くにいたら「にゃーん」
             window.soundManager.updateCatProximitySound(closestCatDistance);
         }
+
+        // リスク露出時間（近接状態の累積）
+        // 最短距離が1.8未満のフレームを積算
+        if (!gameState.lastRiskSampleTime) gameState.lastRiskSampleTime = currentTime;
+        const dt = currentTime - gameState.lastRiskSampleTime;
+        if (closestDistance < 1.8) {
+            gameState.riskExposureMs = (gameState.riskExposureMs || 0) + dt;
+        }
+        gameState.lastRiskSampleTime = currentTime;
     }
 
     // 魔法攻撃の更新
@@ -491,6 +560,7 @@ async function initBitECSGame() {
                 // ダメージ判定（無敵時間チェック）
                 if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
                     gameState.playerHP--;
+                    gameState.damageCount = (gameState.damageCount||0) + 1;
                     gameState.lastDamageTime = currentTime;
 
                     if (window.soundManager) {
@@ -739,6 +809,22 @@ async function initBitECSGame() {
                         }
                     }
                 }
+                // 追加ランタン分も判定
+                for (let i = 0; i < extraLanterns.length; i++) {
+                    const lan = extraLanterns[i];
+                    const key = `${Math.floor(lan.x)},${Math.floor(lan.y)}`;
+                    if (!gameState.collectedLanterns.has(key)) {
+                        const dx = lan.x - playerX;
+                        const dy = lan.y - playerY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        if (distance < 0.5) {
+                            gameState.collectedLanterns.add(key);
+                            gameState.playerHP = Math.min(gameState.maxHP, gameState.playerHP + 1);
+                            if (window.soundManager) window.soundManager.play('heal');
+                            console.log(`🏮(追加) ランタン取得！HP回復！ (${gameState.playerHP}/${gameState.maxHP})`);
+                        }
+                    }
+                }
             }
 
             // コウモリ爆発判定（逃走フェーズのみ）
@@ -763,6 +849,7 @@ async function initBitECSGame() {
                             // ダメージ判定（無敵時間チェック）
                             if (currentTime - gameState.lastDamageTime > gameState.invincibleDuration) {
                                 gameState.playerHP--;
+                                gameState.damageCount = (gameState.damageCount||0) + 1;
                                 gameState.lastDamageTime = currentTime;
 
                                 // 爆発音を鳴らす
@@ -832,14 +919,19 @@ async function initBitECSGame() {
                 // 逃走フェーズ: 残り時間
                 const escapeElapsed = currentTime - gameState.escapeStartTime;
                 const remaining = Math.max(0, (gameState.escapeDuration - escapeElapsed) / 1000).toFixed(1);
-                timerElement.textContent = `残り ${remaining}秒`;
+                const pfx = window.i18n?.t('ui_remaining_prefix') || '残り ';
+                const sfx = window.i18n?.t('ui_sec_suffix') || '秒';
+                timerElement.textContent = `${pfx}${remaining}${sfx}`;
             } else if (gameState.phase === PHASE.COLLECT || gameState.phase === PHASE.RETURN) {
                 // 収集フェーズ: 経過時間
                 const elapsed = ((currentTime - gameState.startTime) / 1000).toFixed(1);
-                timerElement.textContent = `${elapsed}秒`;
+                const sfx = window.i18n?.t('ui_sec_suffix') || '秒';
+                timerElement.textContent = `${elapsed}${sfx}`;
             } else if (gameState.phase === PHASE.VICTORY && gameState.finalTimeSec != null) {
                 // 勝利時は最終タイムを固定表示
-                timerElement.textContent = `タイム ${gameState.finalTimeSec}秒`;
+                const pfx = window.i18n?.t('ui_time_prefix') || 'タイム ';
+                const sfx = window.i18n?.t('ui_sec_suffix') || '秒';
+                timerElement.textContent = `${pfx}${gameState.finalTimeSec}${sfx}`;
             } else {
                 timerElement.textContent = '-';
             }
@@ -851,7 +943,7 @@ async function initBitECSGame() {
                 case PHASE.INTRO:
                     // INTROでは最初の数秒だけ中央に、その後は左上の小ヒントへ
                     if (currentTime < gameState.introOverlayUntil) {
-                        messageElement.textContent = '🧙‍♀️ 魔女っこを探して近づこう！';
+                        messageElement.textContent = (window.i18n?.t('intro_hint')) || '🧙‍♀️ 魔女っこを探して近づこう！';
                         messageElement.style.display = 'block';
                         messageElement.style.fontSize = '20px';
                         messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
@@ -859,7 +951,7 @@ async function initBitECSGame() {
                     } else {
                         messageElement.style.display = 'none';
                         if (hintElement) {
-                            hintElement.textContent = '🧙‍♀️ 魔女っこを探して近づこう！';
+                            hintElement.textContent = (window.i18n?.t('intro_hint')) || '🧙‍♀️ 魔女っこを探して近づこう！';
                             hintElement.style.display = 'block';
                         }
                     }
@@ -868,7 +960,7 @@ async function initBitECSGame() {
                 case PHASE.COLLECT:
                     // 最初の2秒間は魔女っこの台詞を表示
                     if (currentTime < gameState.introMessageUntil) {
-                        messageElement.textContent = '🧙‍♀️ 魔女っこ: かぼちゃを全部集めてきてね！';
+                        messageElement.textContent = (window.i18n?.t('collect_intro')) || '🧙‍♀️ 魔女っこ: かぼちゃを全部集めてきてね！';
                         messageElement.style.display = 'block';
                         messageElement.style.fontSize = '22px';
                         messageElement.style.backgroundColor = 'rgba(138, 43, 226, 0.9)';
@@ -882,7 +974,7 @@ async function initBitECSGame() {
                 case PHASE.RETURN:
                     // RETURNメッセージは一定時間だけ中央に表示
                     if (currentTime < gameState.returnOverlayUntil) {
-                        messageElement.textContent = '🎃 全部集めた！魔女っこのところへ戻ろう！';
+                        messageElement.textContent = (window.i18n?.t('return_hint')) || '🎃 全部集めた！魔女っこのところへ戻ろう！';
                         messageElement.style.display = 'block';
                         messageElement.style.fontSize = '22px';
                         messageElement.style.backgroundColor = 'rgba(255, 140, 0, 0.9)';
@@ -893,7 +985,7 @@ async function initBitECSGame() {
                     break;
 
                 case PHASE.BETRAYAL:
-                    messageElement.innerHTML = '😈 魔女っこ: ふふふ...実はあなたは生け贄なのよ！<br>さあ、みんな、彼を捕まえて！';
+                    messageElement.innerHTML = (window.i18n?.t('betrayal_html')) || '😈 魔女っこ: ふふふ...実はあなたは生け贄なのよ！<br>さあ、みんな、彼を捕まえて！';
                     messageElement.style.display = 'block';
                     messageElement.style.fontSize = '22px';
                     messageElement.style.backgroundColor = 'rgba(139, 0, 0, 0.95)';
@@ -903,7 +995,7 @@ async function initBitECSGame() {
                 case PHASE.ESCAPE:
                     // 逃走フェーズの導入メッセージを3.5秒だけ表示
                     if (currentTime < gameState.escapeOverlayUntil) {
-                        messageElement.textContent = '🏃 逃げろ！敵から60秒逃げ切れ！';
+                        messageElement.textContent = (window.i18n?.t('escape_intro')) || '🏃 逃げろ！敵から60秒逃げ切れ！';
                         messageElement.style.display = 'block';
                         messageElement.style.fontSize = '20px';
                         messageElement.style.backgroundColor = 'rgba(255, 0, 0, 0.85)';
@@ -914,7 +1006,7 @@ async function initBitECSGame() {
                     break;
 
                 case PHASE.GAMEOVER:
-                    messageElement.innerHTML = '💀 ゲームオーバー<br>敵に捕まってしまった...<br><small>F5でリトライ</small>';
+                    messageElement.innerHTML = (window.i18n?.t('gameover_html')) || '💀 ゲームオーバー<br>敵に捕まってしまった...<br><small>F5でリトライ</small>';
                     messageElement.style.display = 'block';
                     messageElement.style.fontSize = '28px';
                     messageElement.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
@@ -924,7 +1016,7 @@ async function initBitECSGame() {
                     const finalTime = gameState.finalTimeSec != null
                         ? gameState.finalTimeSec
                         : ((currentTime - gameState.startTime) / 1000).toFixed(2);
-                    messageElement.innerHTML = `🎉 勝利！<br>生け贄の儀式から逃げ切った！<br>タイム: ${finalTime}秒`;
+                    messageElement.innerHTML = (window.i18n?.t('victory_html',{ time: finalTime })) || `🎉 勝利！<br>生け贄の儀式から逃げ切った！<br>タイム: ${finalTime}秒`;
                     messageElement.style.display = 'block';
                     messageElement.style.fontSize = '32px';
                     // 虹色グラデーションで派手に！
@@ -935,7 +1027,17 @@ async function initBitECSGame() {
                     messageElement.style.textShadow = '0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.5)';
                     messageElement.style.border = '4px solid #ffeb3b';
                     messageElement.style.boxShadow = '0 0 40px rgba(255, 235, 59, 0.8)';
+                    // スコア表示（右パネル）
+                    const scoreEl = document.getElementById('score');
+                    if (scoreEl && typeof gameState.score === 'number') {
+                        scoreEl.textContent = String(gameState.score);
+                    }
                     if (hintElement) hintElement.style.display = 'none';
+                    // 朝焼けが始まった後は左上にリスタートヒントを表示
+                    if (hintElement && gameState.sunriseStarted) {
+                        hintElement.textContent = window.i18n?.t('press_r_restart') || 'Press R to restart';
+                        hintElement.style.display = 'block';
+                    }
                     break;
             }
         }
@@ -966,7 +1068,12 @@ async function initBitECSGame() {
         // スプライト描画（オブジェクトを壁の上に描画、収集済みかぼちゃを除外、Z-バッファでクリッピング）
         // 逃走フェーズでは敵も動的に描画
         const dynamicEnemies = gameState.phase === PHASE.ESCAPE ? enemies : null;
-        renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, performance.now(), gameState.collectedPumpkins, pumpkinPositions, witchGirlPosition, zBuffer, dynamicEnemies, gameState.collectedLanterns, gameState.explodedBats);
+        const npcWitchForRender = gameState.witchGirlAttacking ? null : witchGirlPosition;
+        renderSprites(
+            ctx, canvas, playerX, playerY, playerAngle, map, performance.now(),
+            gameState.collectedPumpkins, pumpkinPositions, npcWitchForRender,
+            zBuffer, dynamicEnemies, extraLanterns, gameState.collectedLanterns, gameState.explodedBats
+        );
 
         // 爆発エフェクトを描画
         updateAndRenderExplosions(ctx, canvas, playerX, playerY, playerAngle, performance.now());
@@ -975,14 +1082,27 @@ async function initBitECSGame() {
         renderMagicAttacks(ctx, canvas, playerX, playerY, playerAngle);
 
         // ミニマップ（逃走フェーズでは敵も表示）
-        renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, witchGirlPosition, dynamicEnemies, gameState.phase);
+        const npcWitchForMinimap = gameState.witchGirlAttacking ? null : witchGirlPosition;
+        renderMinimap(playerX, playerY, playerAngle, pumpkinPositions, gameState.collectedPumpkins, npcWitchForMinimap, dynamicEnemies, gameState.phase, extraLanterns, gameState.collectedLanterns);
 
-        // 勝利演出（周囲が消えていく + パーティクル）
+        // 勝利演出（周囲が消えていく + パーティクル → 朝焼け）
         if (gameState.phase === PHASE.VICTORY) {
             const now = performance.now();
-            const progress = Math.min(1, (now - gameState.victoryStartTime) / 2500);
-            renderVictoryVFX(ctx, canvas, progress);
-            drawVictoryParticles(ctx, canvas, progress);
+            const vfxProgress = Math.min(1, (now - gameState.victoryStartTime) / 2500);
+            renderVictoryVFX(ctx, canvas, vfxProgress);
+            drawVictoryParticles(ctx, canvas, vfxProgress);
+
+            // VFX終了後に朝焼けアニメーション（約6秒）
+            if (vfxProgress >= 1) {
+                if (!gameState.sunriseStarted) {
+                    gameState.sunriseStarted = true;
+                    if (window.soundManager) {
+                        window.soundManager.play('birds');
+                    }
+                }
+                const sunriseP = Math.min(1, (now - gameState.victoryStartTime - 2500) / 6000);
+                renderSunrise(ctx, canvas, sunriseP);
+            }
         }
     }
 
@@ -1024,6 +1144,66 @@ async function initBitECSGame() {
         }
 
         ctx.restore();
+    }
+
+    // 朝焼け描画（夜→明け方の空と太陽の上昇）
+    function renderSunrise(ctx, canvas, p) {
+        // p: 0 → 1
+        const w = canvas.width;
+        const h = canvas.height;
+        const skyH = h * 0.6;
+
+        // 色補間ヘルパー
+        const lerp = (a, b, t) => a + (b - a) * t;
+        const lerpColor = (c1, c2, t) => {
+            const a = [parseInt(c1.substr(1,2),16), parseInt(c1.substr(3,2),16), parseInt(c1.substr(5,2),16)];
+            const b = [parseInt(c2.substr(1,2),16), parseInt(c2.substr(3,2),16), parseInt(c2.substr(5,2),16)];
+            const r = Math.round(lerp(a[0], b[0], t));
+            const g = Math.round(lerp(a[1], b[1], t));
+            const b2 = Math.round(lerp(a[2], b[2], t));
+            return `rgb(${r},${g},${b2})`;
+        };
+
+        // 夜空(#0a0e27)→朝空(#87ceeb)
+        const topColor = lerpColor('#0a0e27', '#87cee8', p);
+        // 地平線近くの朝焼け(#ff6d00→#ffd9a0)
+        const horizonColor = lerpColor('#1a1f3a', '#ffd9a0', p);
+
+        // 空のグラデーション
+        const sky = ctx.createLinearGradient(0, 0, 0, skyH);
+        sky.addColorStop(0, topColor);
+        sky.addColorStop(1, horizonColor);
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, w, skyH);
+
+        // 太陽（左寄りから上昇）
+        const sunX = w * 0.18;
+        const startY = h * 0.75; // 地平線下
+        const endY = h * 0.25;   // だいぶ上
+        const sunY = lerp(startY, endY, p);
+        const sunR = lerp(h * 0.04, h * 0.08, p);
+
+        // 太陽のグロー
+        const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR * 3);
+        glow.addColorStop(0, `rgba(255, 220, 120, ${0.6 * p})`);
+        glow.addColorStop(1, 'rgba(255,220,120,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 太陽本体
+        ctx.fillStyle = lerpColor('#ffd27a', '#fff2b0', p);
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 地面（少し明るく）
+        const ground = ctx.createLinearGradient(0, skyH, 0, h);
+        ground.addColorStop(0, lerpColor('#3d2817', '#7a5b3a', p));
+        ground.addColorStop(1, lerpColor('#1a0f05', '#3a2a15', p));
+        ctx.fillStyle = ground;
+        ctx.fillRect(0, skyH, w, h - skyH);
     }
 
     // 勝利パーティクル（花火/紙吹雪風）- 派手に増量！
@@ -1469,7 +1649,7 @@ async function initBitECSGame() {
         }
     }
 
-    function renderMinimap(playerX, playerY, playerAngle, pumpkinPositions = [], collectedPumpkins = new Set(), witchGirlPosition = null, dynamicEnemies = null, phase = PHASE.INTRO) {
+    function renderMinimap(playerX, playerY, playerAngle, pumpkinPositions = [], collectedPumpkins = new Set(), witchGirlPosition = null, dynamicEnemies = null, phase = PHASE.INTRO, dynamicLanterns = [], collectedLanterns = new Set()) {
         const minimapElement = document.getElementById('minimap');
         if (!minimapElement) return;
 
@@ -1628,6 +1808,25 @@ async function initBitECSGame() {
                 guide.style.transform = `rotate(${ang}rad)`;
                 guide.style.zIndex = '14';
                 overlay.appendChild(guide);
+            }
+        }
+
+        // 追加ランタンを描画（黄色）
+        if (dynamicLanterns && dynamicLanterns.length) {
+            for (let i = 0; i < dynamicLanterns.length; i++) {
+                const lan = dynamicLanterns[i];
+                const key = `${Math.floor(lan.x)},${Math.floor(lan.y)}`;
+                if (collectedLanterns.has(key)) continue;
+                const el = document.createElement('div');
+                el.style.position = 'absolute';
+                el.style.left = `${Math.floor(lan.x) * cellSize}px`;
+                el.style.top = `${Math.floor(lan.y) * cellSize}px`;
+                el.style.width = `${cellSize}px`;
+                el.style.height = `${cellSize}px`;
+                el.style.backgroundColor = '#ffcc00';
+                el.style.borderRadius = '50%';
+                el.style.zIndex = '11';
+                overlay.appendChild(el);
             }
         }
 

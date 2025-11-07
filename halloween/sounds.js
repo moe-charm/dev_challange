@@ -77,6 +77,9 @@ class SoundManager {
 
         // 魔法攻撃音
         this.sounds.magic = () => this.createMagicSound();
+
+        // 朝の小鳥（短いチルプを複数）
+        this.sounds.birds = () => this.createBirdsSound();
     }
     
     // 足音の生成
@@ -107,6 +110,38 @@ class SoundManager {
         
         oscillator.start(now);
         oscillator.stop(now + 0.1);
+    }
+
+    // 朝の小鳥のさえずり（複数の短いチルプをスケジュール）
+    createBirdsSound() {
+        if (!this.audioContext) return;
+        const ctx = this.audioContext;
+        const now = ctx.currentTime;
+
+        const chirp = (t0, fStart, fEnd, dur = 0.18, gain = 0.12) => {
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            const f = ctx.createBiquadFilter();
+            osc.connect(f); f.connect(g); g.connect(ctx.destination);
+            f.type = 'bandpass'; f.frequency.value = 2500; f.Q.value = 8;
+            g.gain.setValueAtTime(0, t0);
+            g.gain.linearRampToValueAtTime(gain, t0 + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(fStart, t0);
+            osc.frequency.exponentialRampToValueAtTime(fEnd, t0 + dur);
+            osc.start(t0);
+            osc.stop(t0 + dur + 0.02);
+        };
+
+        // ランダムな群れ感（3〜6回のチルプを2秒に散らす）
+        const count = 4 + Math.floor(Math.random()*3);
+        for (let i = 0; i < count; i++) {
+            const t0 = now + 0.2 + Math.random() * 2.0;
+            const f1 = 2500 + Math.random()*1200;
+            const f2 = f1 + 600 + Math.random()*400;
+            chirp(t0, f1, f2, 0.15 + Math.random()*0.08, 0.08 + Math.random()*0.06);
+        }
     }
     
     // ドア音の生成

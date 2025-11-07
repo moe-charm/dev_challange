@@ -17,9 +17,16 @@
         <div class="header-content">
             <h1 class="header-title">🎃 Halloween Town Explorer 🦇</h1>
             <p class="header-subtitle">A 3D Raycasting Halloween Experience</p>
+            <div class="lang-switch">
+                <label for="langSelect" class="visually-hidden">Language</label>
+                <select id="langSelect" aria-label="Language">
+                    <option value="ja">日本語</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
             <div class="header-cta">
-                <a class="btn btn-primary" href="#viewport" aria-label="今すぐプレイ">今すぐ遊ぶ</a>
-                <a class="btn btn-ghost" href="#howto" aria-label="遊び方へ移動">遊び方</a>
+                <a class="btn btn-primary" href="#viewport" data-i18n="cta_play" aria-label="今すぐプレイ">今すぐ遊ぶ</a>
+                <a class="btn btn-ghost" href="#howto" data-i18n="cta_howto" aria-label="遊び方へ移動">遊び方</a>
             </div>
         </div>
     </header>
@@ -28,23 +35,27 @@
         <div class="game-section">
             <div class="game-container">
                 <div class="game-title">
-                    <h2>🎃 ハロウィンかぼちゃ収集ゲーム 🦇</h2>
-                    <p>矢印キーで移動して、街中のかぼちゃを全部集めよう！</p>
+                    <h2 data-i18n="game_title">🎃 ハロウィンかぼちゃ収集ゲーム 🦇</h2>
+                    <p data-i18n="game_desc">矢印キーで移動して、街中のかぼちゃを全部集めよう！</p>
                 </div>
                 
                 <div class="viewport" id="viewport">
                     <canvas id="gameCanvas"></canvas>
                     <div class="game-overlay">
-                        <button class="sound-toggle" id="soundToggle">🔊 音を有効化</button>
+                        <button class="sound-toggle" id="soundToggle" data-i18n="sound_enable">🔊 音を有効化</button>
                         <div class="game-ui">
                             <div class="ui-panel">
                                 <div class="ui-item">
-                                    <span class="ui-label">🎃 かぼちゃ:</span>
+                                    <span class="ui-label" data-i18n="ui_pumpkin">🎃 かぼちゃ:</span>
                                     <span class="ui-value" id="collected-count">0 / 0</span>
                                 </div>
                                 <div class="ui-item">
-                                    <span class="ui-label">⏱️ タイム:</span>
+                                    <span class="ui-label" data-i18n="ui_time">⏱️ タイム:</span>
                                     <span class="ui-value" id="timer">0.0秒</span>
+                                </div>
+                                <div class="ui-item">
+                                    <span class="ui-label" data-i18n="ui_score">⭐ スコア:</span>
+                                    <span class="ui-value" id="score">0</span>
                                 </div>
                             </div>
                         </div>
@@ -55,11 +66,11 @@
                 
                 <div class="instructions">
                     <div class="controls">
-                        <p>↑↓←→ 移動 | S: 音のオン/オフ | A: 環境音</p>
-                        <p>画面クリックで音を有効化</p>
+                        <p data-i18n="instr1">↑↓←→ 移動 | S: 音のオン/オフ | A: 環境音</p>
+                        <p data-i18n="instr2">画面クリックで音を有効化</p>
                     </div>
                     <div class="minimap-container">
-                        <p>ミニマップ:</p>
+                        <p data-i18n="minimap">ミニマップ:</p>
                         <div class="minimap" id="minimap"></div>
                     </div>
                 </div>
@@ -123,6 +134,7 @@
         </p>
     </footer>
 
+    <script src="i18n.js"></script>
     <script type="module">
         // bitECSをESモジュールとして読み込み
         import * as BITECS from 'https://cdn.skypack.dev/bitecs@0.3.25';
@@ -147,7 +159,8 @@
                     if (window.soundManager) {
                         window.soundManager.resumeAudio();
                         const enabled = window.soundManager.toggleSound();
-                        soundToggle.textContent = enabled ? '🔊 音オン' : '🔇 音オフ';
+                        soundToggle.dataset.active = '1';
+                        soundToggle.textContent = enabled ? window.i18n.t('sound_on') : window.i18n.t('sound_off');
                     }
                 });
             }

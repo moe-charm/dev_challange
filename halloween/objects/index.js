@@ -32,7 +32,11 @@ function collectStaticSprites(map) {
     return sprites;
 }
 
-export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, time, collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null, zBuffer = null, dynamicEnemies = null, collectedLanterns = new Set(), explodedBats = new Set()) {
+export function renderSprites(
+    ctx, canvas, playerX, playerY, playerAngle, map, time,
+    collectedPumpkins = new Set(), pumpkinPositions = [], witchGirlPosition = null,
+    zBuffer = null, dynamicEnemies = null, dynamicLanterns = [], collectedLanterns = new Set(), explodedBats = new Set()
+) {
     // 初回のみマップからスプライトを収集（かぼちゃ以外）
     if (!cachedSprites) {
         cachedSprites = collectStaticSprites(map);
@@ -123,6 +127,32 @@ export function renderSprites(ctx, canvas, playerX, playerY, playerAngle, map, t
                     type: 3, // かぼちゃ
                     x: pumpkin.x,
                     y: pumpkin.y,
+                    distance: Math.sqrt(distanceSquared),
+                    angle: normalizedAngle
+                });
+            }
+        }
+    }
+
+    // 追加ランタン（動的）を追加
+    for (let i = 0; i < dynamicLanterns.length; i++) {
+        const lan = dynamicLanterns[i];
+        const key = `${Math.floor(lan.x)},${Math.floor(lan.y)}`;
+        if (collectedLanterns.has(key)) continue;
+
+        const dx = lan.x - playerX;
+        const dy = lan.y - playerY;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared < maxDistance * maxDistance && distanceSquared > 0.25) {
+            const angle = Math.atan2(dy, dx) - playerAngle;
+            let normalizedAngle = angle;
+            while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+            while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+            if (normalizedAngle > -fov && normalizedAngle < fov) {
+                visibleSprites.push({
+                    type: 4, // ランタン
+                    x: lan.x,
+                    y: lan.y,
                     distance: Math.sqrt(distanceSquared),
                     angle: normalizedAngle
                 });

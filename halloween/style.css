@@ -58,6 +58,11 @@ body {
     background: transparent;
 }
 
+/* Lang switch */
+.lang-switch{display:inline-flex;gap:8px;align-items:center;margin-top:8px}
+.lang-switch select{background:rgba(0,0,0,.3);color:#ff9c00;border:1px solid #ff9c00;border-radius:6px;padding:6px 10px}
+.visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+
 /* メインコンテンツ */
 .main-content {
     display: flex;
@@ -212,6 +217,7 @@ h1 {
     animation: minimap-ping 1.2s cubic-bezier(0, 0, 0.2, 1) infinite;
     transform: translate(-50%, -50%);
     pointer-events: none;
+    will-change: transform;
 }
 
 @keyframes minimap-ping {
@@ -460,7 +466,7 @@ h1 {
     color: #ffeb3b;
     text-align: center;
     box-shadow: 0 0 30px rgba(255, 235, 59, 0.8);
-    animation: messageAppear 0.5s ease-out, glow 2s infinite alternate;
+    animation: messageAppear 0.5s ease-out;
     z-index: 1000;
 }
 
@@ -490,7 +496,18 @@ h1 {
     text-align: center;
     box-shadow: 0 0 20px rgba(255, 235, 59, 0.6);
     animation: bounce 1s ease-in-out infinite;
+    will-change: transform;
     z-index: 500;
+}
+
+/* Respect reduced motion: disable heavy animations */
+@media (prefers-reduced-motion: reduce) {
+  .header-title,
+  .game-title h2,
+  .lantern-glow,
+  .minimap-ping,
+  .talk-prompt,
+  .game-message { animation: none !important; }
 }
 
 /* 画面左上の軽量ヒント */
